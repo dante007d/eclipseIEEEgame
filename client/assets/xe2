@@ -1,0 +1,86 @@
+ROLE
+You are a senior full-stack engineer. Build a complete, production-ready multiplayer quiz game. The title is a placeholder: make it one config constant, GAME_NAME. Work in phases and run tests after each one. Do not stop to ask questions: where something is unspecified, choose the simplest sensible option and record it in ASSUMPTIONS.md.
+
+STACK
+TypeScript everywhere. React (Vite) frontend, Node.js + Socket.io server, Supabase (Postgres) for persistence. Monorepo: packages/engine (pure game logic, zero I/O), apps/server, apps/web. Mobile-first UI, because most players will be on phones.
+
+THE GAME (implement these rules exactly)
+Players climb 60 levels by answering questions. Each level has one MAIN question and up to 4 ROOM questions, each room easier than the one before.
+
+Player state: { level: 0..60 (highest level cleared, 0 = start), phase: MAIN | ROOM, room: 0..4 (0 while in MAIN), resets, finished }. The MAIN question being asked is always for level + 1.
+
+Transitions:
+1. MAIN correct: level += 1 and serve the next MAIN question. When level reaches 60, the player finishes.
+2. MAIN wrong: go to ROOM 1 (easier question).
+3. ROOM k wrong, k < 4: go to ROOM k+1 (easier than ROOM k).
+4. ROOM 4 wrong: RESET. level = 0, phase = MAIN, resets += 1. This is 5 consecutive wrong answers (main + all 4 rooms).
+5. ROOM k correct, any k: return to MAIN for the same level. The player must answer MAIN to progress, and it is a different variant question of the same difficulty.
+6. Timer expiry counts as a wrong answer.
+There are no checkpoints and no other penalties.
+
+DIFFICULTY AND SELECTION
+Every question has difficulty 1-60. MAIN at level L uses difficulty L. ROOM k uses max(1, round(L * roomDifficultyFractions[k-1])), default [0.8, 0.6, 0.4, 0.2]. At low levels this floors at 1, so still serve a different question. Selection rules:
+- Pick the exact difficulty, else the nearest available.
+- Never repeat a question for the same player within a match unless the pool is exhausted.
+- Randomize per player, so neighbours never see the same question at the same moment.
+- Shuffle option order on every delivery.
+
+CONFIG (one typed object, host-overridable per match; defaults)
+totalLevels 60; roomsPerLevel 4; roomDifficultyFractions as above; mainTimerSec 45; roomTimerSec 30; maxMainFailsPerLevel null (optional anti-stall: when set, that many failed MAIN attempts on the same level force a reset; off by default); matchDurationMinutes null (optional: when set, the match ends at timeout).
+
+QUESTIONS
+Schema: id, type (default "mcq"; leave room for numeric and true/false), text, options[4], correct_option, difficulty 1-60, topic, explanation (optional), active. Ship seed.json with at least 120 placeholder CS questions, 2 or more per difficulty step. The host UI imports CSV/JSON and shows a validation report plus a coverage heatmap by difficulty, warning below 4 questions per difficulty.
+
+REAL-TIME (server-authoritative)
+Clients never see correct answers and never decide outcomes. The server sends each question with a one-time questionToken and a server-side deadline. The client submits {questionToken, optionId}. The server validates the token, the deadline, and one answer per token.
+Events: match:join, match:state, question:show, answer:submit, answer:result {correct, transition: ADVANCE | ENTER_ROOM | NEXT_ROOM | RETURN_TO_MAIN | RESET | FINISH}, players:update (every player's level, phase, room), match:ended.
+Reconnecting restores the player's state and current question with the remaining time. Rate-limit submissions and ignore duplicates.
+
+PERSISTENCE (Supabase)
+Tables: matches (id, code, status, config, started_at, ends_at), players (id, match_id, name, level, phase, room, resets, best_level, finished_at), questions, attempts (player_id, question_id, phase, room, level, correct, time_ms, created_at). Players are anonymous: they join with a 6-character match code plus a display name. RLS: clients can never read questions.correct_option. Only the server (service role) touches it.
+
+SCREENS
+Player:
+- Join screen, then the play screen.
+- A 0-60 progress track and a phase banner: MAIN, or "ROOM 3/4" with the background getting darker the deeper the room.
+- Timer ring, question card, and four large tap targets.
+- Outcome animations: rise (ADVANCE), drop (ENTER_ROOM / NEXT_ROOM), climb back (RETURN_TO_MAIN), collapse (RESET), celebration (FINISH).
+- A compact live panel of other players showing name, level, and depth pips for how deep in the rooms they are. Anyone in ROOM 4 is highlighted as "one mistake from reset".
+- Cosmetic theme change every 10 levels.
+- Respect prefers-reduced-motion, and keep sound off by default with a toggle.
+Host:
+- Create a match and get its code, and configure the rules.
+- Upload and validate questions.
+- Start, pause, and end the match.
+- A live dashboard, remove-player action, and results CSV export.
+Projector:
+- A big-screen leaderboard plus a live "danger zone" list, auto-updating.
+
+RANKING
+Current level descending, ties broken by who reached it earlier. Also show best_level, resets, and accuracy. Untimed matches: first to clear level 60 wins and the rest are ranked by current level. Timed matches: rank by the rule above when time ends.
+
+ANTI-CHEAT
+Per-player question order and option shuffle, server-only timers, no answers in any payload, log tab-visibility changes (flag them, don't punish), and one active session per player.
+
+TESTING (required)
+Table-driven unit tests for the engine covering every transition above, plus:
+- A ROOM 4 correct answer returns to MAIN.
+- Clearing level 60 finishes the player.
+- A timeout counts as wrong.
+- Room difficulty is non-increasing across rooms and floors at 1.
+- maxMainFailsPerLevel behaves correctly when set.
+- A player never gets a repeated question.
+Also write scripts/simulate.ts: it simulates N bots with a configurable accuracy-versus-difficulty curve and prints the level distribution, reset frequency, and average time to finish, so the host can tune the fractions and timers.
+
+BUILD ORDER
+1. Engine, tests, and simulator
+2. Question selector, seed data, and validator
+3. Server, Socket.io, and Supabase
+4. Player UI
+5. Host UI
+6. Projector view
+7. Polish, README (setup, env vars, deploy), and ASSUMPTIONS.md
+After each phase, run the tests and summarize in 3 lines.
+
+DEFINITION OF DONE
+Ten simulated bots and three real browser clients complete a full match without desync. Every transition in the rules is covered by a passing test, and no client payload ever contains a correct answer.

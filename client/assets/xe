@@ -1,0 +1,40 @@
+You are a senior full-stack engineer and award-winning motion designer. We are building "TECH DROP", a 60-level college techhunt web game, in 3 parts. This is PART 1 of 3: foundation only. Do NOT build screens yet. After finishing, reply "PART 1 DONE" and wait for Part 2.
+
+=== 1. VISUAL IDENTITY ===
+Style: bright, loud, playful pop / neo-brutalist. ABSOLUTELY NO dark backgrounds or dark mode anywhere. Think candy colors, thick 3px black outlines, hard offset shadows (6px 6px 0 #111), stickers, squash-and-stretch motion.
+
+Design tokens (put in CSS variables + Tailwind config):
+- Canvas: cream #FFF8E7 with animated confetti-dot pattern
+- Ink: #111111
+- Main level: electric blue #2D6BFF + sunshine yellow #FFE600
+- Room 1 "BUFFER": lime #7CFF3F
+- Room 2 "CACHE": tangerine #FF8A1F
+- Room 3 "SANDBOX": hot pink #FF3D9A
+- Room 4 "VOID": vivid violet #A24BFF + cyan #00E0FF
+- Success: mint #00F5A0 | Error: coral #FF4D4D | Warning: amber #FFC400
+- Each room gets a full theme object: bg, card, accent, shadow, shape-set (bubbles / blocks / zigzags / spikes), mascot-mood, sound-pitch.
+Typography: "Space Grotesk" 800 for headings, "Poppins" for body, "JetBrains Mono" for numbers/timers. Fluid type scale with clamp().
+Spacing 4px base, radius 16/24px, buttons min 48px tall (mobile first).
+
+=== 2. GAME RULES (the single source of truth) ===
+- 60 levels. Every level has 5 questions: 1 MAIN + 4 ROOM questions (R1..R4), difficulty strictly decreasing: MAIN > R1 > R2 > R3 > R4.
+- Correct MAIN answer -> advance to the next level (level + 1). Level 60 solved -> victory screen.
+- Wrong MAIN answer -> player is pushed into Room 1 and gets its easier question.
+- Wrong in Room k (k<4) -> pushed to Room k+1 (easier again).
+- Wrong in Room 4 -> FULL RESET: player returns to Level 0 (attempts history kept for the leaderboard, progress zeroed).
+- Correct in ANY room -> player returns to the main level. Make this a config flag in one file:
+  RETURN_MODE = "same_question" | "next_level"  (default "next_level"; with "same_question" the main question is replaced by an unused alternate variant so it cannot be memorised).
+- Per-question timer (configurable per room, default MAIN 90s, R1 75s, R2 60s, R3 45s, R4 30s). Timeout counts as a wrong answer.
+- Hints: optional, max 1 per level, cost 15 seconds off the timer or a score penalty (configurable).
+- Scoring: base points per level + time bonus + streak bonus; room recoveries give reduced points.
+
+Implement the rules as a PURE, fully unit-tested state machine (no UI, no network): states MAIN, ROOM_1..ROOM_4, LEVEL_UP, RESET, VICTORY. Use XState or a hand-written reducer. Export transition(state, event) -> {nextState, effects[]}. Effects are things like PLAY_ANIMATION("fall"), PLAY_SOUND("boing"), SAVE_PROGRESS. Write Vitest tests covering: every transition, timeout, reset, level 60 victory, both RETURN_MODE values, and 1000 randomized play-throughs that never reach an invalid state.
+
+=== 3. ARCHITECTURE ===
+Stack: React 18 + Vite + TypeScript (strict), Tailwind CSS, Zustand (UI state), Framer Motion (layout/page transitions), GSAP (timelines for burst/reset), canvas-confetti, Howler.js (audio), Supabase (auth, Postgres, realtime, edge functions). Deploy-ready for Vercel.
+Folder structure:
+/src/engine (state machine, scoring, tests) /src/theme (tokens, room themes) /src/components (ui primitives) /src/features (landing, play, map, leaderboard, admin) /src/animations (reusable motion presets) /src/audio /src/lib (supabase client, api) /supabase (schema.sql, functions, seed)
+Create: the design-token system, a reusable primitive kit (Button with squash press + jelly hover + ripple, Card sticker, Badge, ProgressBar with liquid wave, Heart/Star lives, TimerRing, Toast, Modal), a motion-preset library (shake, squishDrop, rocketLaunch, jellyHover, confettiBurst, slotFlip, glitchlessBoom), and a Storybook-style /playground route showing every primitive in every room theme.
+Rules: respect prefers-reduced-motion everywhere (swap big motion for fades), each animation <= 1.5s and skippable, only animate transform/opacity for 60fps, lazy-load heavy effects, target low-end school laptops and budget Android phones.
+
+Deliver clean, commented code. End with a short README section "How the game rules work".

@@ -1,0 +1,60 @@
+# ROLE
+You are an art-directed front-end designer-developer, not a template generator. Your output should look like it came from a small design studio with a strong point of view: a site someone would screenshot and share. Generic "AI website" aesthetics are a failure condition.
+
+# TASK
+Redesign my attached website (code/screenshots). Keep ALL existing content, sections, copy, images, and links. Change only the visual design, layout, and interaction. Keep my existing stack; if there's no build setup, deliver one self-contained index.html.
+
+# STEP 1: AUDIT, THEN COMMIT TO ONE IDEA
+Read the existing site, then write 3 lines: what the site is, who it's for, and ONE bold visual concept that fits it (e.g., "event poster / zine", "sports broadcast", "printed risograph", "arcade cabinet"). Commit to that concept for every decision below. No hedging, no mixing styles.
+
+# DESIGN DIRECTION: BOLD EDITORIAL / NEO-BRUTALIST, BRIGHT
+- COLOR: flat, saturated, opinionated. Choose ONE dominant color + ONE high-contrast accent + black and an off-white/cream. (Examples: tomato red + cobalt on cream; acid yellow + black + hot pink; electric green + ink black.) NO gradients as the main device. Color is used in large solid blocks, not sprinkled.
+- TYPE: the hero of the design. Pick ONE distinctive display face (e.g., Space Grotesk is too common; prefer Clash Display, Bricolage Grotesque, Syne, Unbounded, Archivo Black, Familjen Grotesk, DM Serif Display, or Instrument Serif) paired with ONE clean body/mono face (e.g., Space Mono, JetBrains Mono, DM Sans). Use massive headline sizes (clamp(3rem, 12vw, 12rem)), tight leading, tight tracking. Mix scale aggressively: huge vs. tiny labels.
+- LAYOUT: visible structure. Thick 2-3px black borders, hard offset shadows (e.g., 6px 6px 0 #000, no blur), strict grid, section numbering (01 / 02 / 03), tiny uppercase mono labels, ticker/marquee strips, overlapping and slightly rotated stickers or badges. Asymmetry and intentional tension over centered symmetry.
+- DETAIL: custom ::selection color, custom scrollbar, grain/noise texture overlay at low opacity, crisp cursor treatment, consistent border radius (either 0 or fully pill, never the default 8px everywhere).
+
+# BANNED (do not use any of these)
+- Purple/blue/pink gradient backgrounds or gradient text
+- Glassmorphism / frosted blur cards
+- Floating blurry blobs or generic particle backgrounds
+- Inter, Roboto, Poppins, or system fonts as the design font
+- Emoji or stock icon sets as decoration; use typography, shapes, and numbers instead
+- Identical three-column rounded card grids with an icon on top
+- Filler copy like "Welcome to", "Unleash", "Elevate", "Seamless", "Cutting-edge". Use only my existing text
+- Centered-everything layouts, uniform spacing, drop shadows with blur
+- Fade-up-on-everything as the only animation
+
+# ENTRY GATE (first and only visible screen on load)
+- Full-screen, styled in the same concept as the site (not a generic modal). Make it feel like a ticket, badge, boarding pass, or poster, whichever fits the concept.
+- Contains ONLY: site name/logo (from existing content), input "Team Name", input "Team Code" (with show/hide), and one "Join" button. Nothing else.
+- Validate against a config at the top of the script:
+    const GATE_CONFIG = { mode: "list", TEAMS: [ { name: "Team Alpha", code: "ALPHA123" } ] };
+  Name: case-insensitive, trimmed. Code: exact. mode "any" accepts any non-empty entry.
+- Wrong: hard, snappy shake (not floaty), inline error in the accent color, fields keep their values.
+- Correct: button press state, then a bold transition into the site (e.g., clip-path wipe, split panels sliding apart, or a color block sweep), not a plain fade. Hero text then plays its entrance. Show the team name once in the hero as a small label (e.g., "TEAM ALPHA / 01").
+- sessionStorage remembers access for the tab session. Enter key submits, autofocus, labels, aria-live errors, focus trapped while the gate is open, nothing behind it focusable or scrollable.
+- Comment in code: front-end only, not real security.
+
+# NAVBAR: REMOVE COMPLETELY
+Delete the navbar HTML, CSS, and JS (including hamburger/sticky logic). No leftover spacing or dead anchors. Replace with: a thin scroll-progress line, section numbers acting as wayfinding, a "scroll" indicator in the hero, and a small fixed "top" button that appears after scrolling.
+
+# MOTION: SPECIFIC, PURPOSEFUL, WITH CHARACTER
+- Easing: use custom curves, never default "ease". Primary: cubic-bezier(0.22, 1, 0.36, 1) for reveals; cubic-bezier(0.76, 0, 0.24, 1) for wipes and transitions. Durations 0.5-0.9s for reveals, 0.2s for hovers.
+- Hero headline: split into lines or characters, each masked (overflow hidden) and sliding up from below with stagger (30-60ms).
+- Scroll: reveal with clip-path or mask wipes and slight translate, varied per element type (headlines wipe, images reveal via expanding clip-path, labels type in). Not the same fade-up on everything.
+- At least one scroll-linked effect: a horizontally scrolling marquee that speeds up with scroll velocity, parallax on large type, or a sticky section where content swaps as you scroll.
+- Hover: buttons physically press (shadow collapses as the element translates into it); cards shift by their own shadow offset; links get an animated underline or fill wipe. Magnetic effect on the primary CTA only.
+- Desktop cursor: a small, custom, concept-appropriate cursor that changes state over interactive elements. Disabled on touch.
+- Numbers/stats count up once when visible.
+- Restraint: motion supports hierarchy. Fewer, better animations beat many. Only animate transform, opacity, clip-path. Respect prefers-reduced-motion.
+
+# RESPONSIVE + QUALITY
+- 360px to 1920px, no horizontal scroll, headline sizes via clamp(). Touch targets 44px+.
+- Semantic HTML, alt text, WCAG AA contrast, zero console errors.
+- Clean, commented code; all colors, fonts, and timing values as CSS variables at the top.
+
+# VERIFY BEFORE FINISHING
+Open the site in the browser and check at 360px, 768px, 1440px. Then do a self-critique: "Would this pass as a template? Which element looks generic?" Fix at least 3 things you find. Confirm: gate works (wrong + right credentials), navbar fully gone, all original content intact, nothing from the BANNED list appears.
+
+# OUTPUT
+The updated files (or one index.html), plus a short note covering: the concept you chose and why, the palette and fonts used, and where to edit team codes, colors, and motion timing.
