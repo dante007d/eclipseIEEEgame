@@ -30,6 +30,7 @@ export function attachGameController(io, matchContext) {
     ranked,
     onlineCount,
     toClientPlayer,
+    toLeanPlayer,
     newPlayer,
     pruneIdle,
     boardPayload,
@@ -67,8 +68,7 @@ export function attachGameController(io, matchContext) {
       return null;
     }
 
-    const grp = groupOf(player);
-    const bank = store.banks[grp] || store.banks.junior;
+    const bank = store.banks.all && store.banks.all.length > 0 ? store.banks.all : store.banks.junior;
     const sel = selectQuestion({
       bank,
       level: player.level,
@@ -176,8 +176,8 @@ export function attachGameController(io, matchContext) {
     }
 
     if (player.status === 'active' && !player.finished) {
-      // Allow brief transition reveal time (2.2s) before active clock ticks
-      issueQuestion(player, 2200);
+      // Allow transition / 5-second ragebait reveal before active question clock begins
+      issueQuestion(player, isCorrect ? 2200 : 5500);
     } else {
       player.activeQuestion = null;
     }
@@ -362,7 +362,6 @@ export function attachGameController(io, matchContext) {
       player.sentRank = null;
 
       socket.join('players');
-      socket.join('projector');
       for (const g of ['junior', 'senior']) socket.leave(`players-${g}`);
       socket.join(`players-${groupOf(player)}`);
 
@@ -423,7 +422,9 @@ export function attachGameController(io, matchContext) {
       if (payload.questionToken !== player.activeQuestion.token) return;
       if (store.status !== 'live' || player.status !== 'active') return;
 
-      const isLate = Date.now() > player.activeQuestion.clientQuestion.deadlineAt + 800;
+      const isLate =
+        payload.optionId === '__TIMEOUT__' ||
+        Date.now() > player.activeQuestion.clientQuestion.deadlineAt + 800;
       handleAnswerEvaluation(player, String(payload.optionId ?? ''), isLate);
     });
 
@@ -530,7 +531,11 @@ export function attachGameController(io, matchContext) {
         ack?.({ ok: false, error: parsed.error });
         return;
       }
-      const target = payload.targetGroup === 'senior' ? 'senior' : payload.targetGroup === 'junior' ? 'junior' : 'both';
+      const target = payload.targetGroup || 'all';
+      if (target === 'all' || target === 'both') {
+        store.banks.all = parsed.questions;
+        store.validationReports.all = { ...parsed.report, targetGroup: 'all' };
+      }
       if (target === 'junior' || target === 'both') {
         store.banks.junior = parsed.questions;
         store.validationReports.junior = { ...parsed.report, targetGroup: 'junior' };
@@ -660,30 +665,45 @@ export function attachGameController(io, matchContext) {
     const list = ranked();
     const rooms = io.sockets.adapter.rooms;
 
-    store.lobbyCache = boardPayload(list, ENV.LOBBY_ROWS);
+    store.lobbyCache = boardPayload(list, ENV.LOBBY_ROWS, toLeanPlayer);
     if (rooms.get('lobby')?.size) io.to('lobby').emit(SOCKET_EVENTS.LEADERBOARD, store.lobbyCache);
-    if (rooms.get('admin')?.size) io.to('admin').emit(SOCKET_EVENTS.LEADERBOARD, boardPayload(list, Infinity));
-    if (rooms.get('projector')?.size || rooms.get('players')?.size) {
-      io.to('projector').emit(SOCKET_EVENTS.PLAYERS_UPDATE, boardPayload(list, Infinity));
+    if (rooms.get('admin')?.size) io.to('admin').emit(SOCKET_EVENTS.LEADERBOARD, boardPayload(list, Infinity, toClientPlayer));
+    if (rooms.get('projector')?.size) {
+      io.to('projector').emit(SOCKET_EVENTS.PLAYERS_UPDATE, boardPayload(list, Infinity, toLeanPlayer));
+    }
+    if (rooms.get('players')?.size) {
+      // Send compact top-25 + Room 4 Danger Zone lean snapshot to player sockets
+      const top25 = list.slice(0, 25);
+      const topIds = new Set(top25.map(p => p.publicId));
+      const compactList = [
+        ...top25,
+        ...list.filter(p => p.room >= store.config.roomsPerLevel && p.status === 'active' && !topIds.has(p.publicId)),
+      ];
+      io.to('players').emit(SOCKET_EVENTS.PLAYERS_UPDATE, {
+        players: compactList.map(toLeanPlayer),
+        totalSouls: store.totalSoulsConsumed,
+        total: list.length,
+        online: onlineCount(),
+        matchCode: store.matchCode,
+        status: store.status,
+      });
     }
 
-    for (const g of ['junior', 'senior']) {
-      const group = list.filter(p => groupOf(p) === g);
-      group.forEach((p, i) => {
-        const rank = i + 1;
-        if (p.socketId && p.sentRank !== rank) {
-          io.sockets.sockets.get(p.socketId)?.emit(SOCKET_EVENTS.RANK, rank);
-          p.sentRank = rank;
-        }
-      });
-      if (rooms.get(`players-${g}`)?.size) {
-        io.to(`players-${g}`).emit(SOCKET_EVENTS.PULSE, {
-          total: group.length,
-          online: group.filter(p => p.online).length,
-          leader: group[0] ? { n: group[0].name, lv: group[0].level } : null,
-          feed: store.feed.filter(f => f.g === g),
-        });
+    // Single unified rank across all active players in the match
+    list.forEach((p, i) => {
+      const rank = i + 1;
+      if (p.socketId && p.sentRank !== rank) {
+        io.sockets.sockets.get(p.socketId)?.emit(SOCKET_EVENTS.RANK, rank);
+        p.sentRank = rank;
       }
+    });
+    if (rooms.get('players')?.size) {
+      io.to('players').emit(SOCKET_EVENTS.PULSE, {
+        total: list.length,
+        online: onlineCount(),
+        leader: list[0] ? { n: list[0].name, lv: list[0].level } : null,
+        feed: store.feed,
+      });
     }
     store.feed = [];
   }

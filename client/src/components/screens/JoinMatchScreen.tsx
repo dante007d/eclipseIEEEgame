@@ -1,23 +1,19 @@
 import { useState, useRef, type FormEvent, type ClipboardEvent, type KeyboardEvent } from 'react';
-import EclipseSky from '../EclipseSky';
+import { soundFX } from '../../lib/sound';
+import { EclipseStage, GoldDivider } from '../GothicPrimitives';
 
 interface JoinMatchScreenProps {
-  onJoin: (code: string, name: string, year: number) => void;
+  onJoin: (code: string, name: string) => void;
+  onStartDemo: (name: string) => void;
   onBack: () => void;
   errorMsg?: string | null;
   loading?: boolean;
   defaultCode?: string;
 }
 
-const YEARS: Array<[number, string]> = [
-  [1, '1ST'],
-  [2, '2ND'],
-  [3, '3RD'],
-  [4, '4TH'],
-];
-
 export default function JoinMatchScreen({
   onJoin,
+  onStartDemo,
   onBack,
   errorMsg,
   loading = false,
@@ -26,10 +22,6 @@ export default function JoinMatchScreen({
   const initialChars = defaultCode.toUpperCase().padEnd(6, '').slice(0, 6).split('');
   const [code, setCode] = useState<string[]>(initialChars);
   const [name, setName] = useState<string>(() => sessionStorage.getItem('eclipse_last_name') || '');
-  const [year, setYear] = useState<number>(() => {
-    const saved = Number(sessionStorage.getItem('eclipse_last_year'));
-    return saved >= 1 && saved <= 4 ? saved : 1;
-  });
   const [localError, setLocalError] = useState<string | null>(null);
   const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
 
@@ -57,152 +49,128 @@ export default function JoinMatchScreen({
     const next = Array.from({ length: 6 }, (_, i) => pasted[i] || '');
     setCode(next);
     setLocalError(null);
-    const focusIdx = Math.min(5, pasted.length);
-    inputRefs.current[focusIdx]?.focus();
+    inputRefs.current[Math.min(5, pasted.length)]?.focus();
   };
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
+    soundFX.playButtonClick();
     const joinedCode = code.join('').trim().toUpperCase();
     const trimmedName = name.trim();
     if (!joinedCode) {
-      setLocalError('Enter the 6-character match code (or WIRE).');
+      setLocalError('ENTER MATCH ACCESS CODE.');
       return;
     }
-    if (!trimmedName) {
-      setLocalError('Display Name is required.');
-      return;
+    if (trimmedName) {
+      sessionStorage.setItem('eclipse_last_name', trimmedName);
     }
-    sessionStorage.setItem('eclipse_last_name', trimmedName);
-    sessionStorage.setItem('eclipse_last_year', String(year));
     setLocalError(null);
-    onJoin(joinedCode, trimmedName, year);
+    onJoin(joinedCode, trimmedName);
   };
 
   const shownError = localError || errorMsg;
 
   return (
-    <div className="relative min-h-screen w-full flex flex-col justify-between p-5 sm:p-8 overflow-x-hidden bg-[#060709]">
-      <EclipseSky />
-
-      {/* Top navigation */}
-      <div className="relative z-10 flex items-center justify-between pt-1 max-w-lg w-full mx-auto">
-        <button
-          type="button"
-          onClick={onBack}
-          className="text-gray-400 hover:text-white font-cinzel text-xs tracking-[0.15em] flex items-center gap-1.5 transition-colors py-2"
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-          BACK
-        </button>
-        <span className="font-cinzel text-xs text-red-500/80 font-bold tracking-[0.2em]">MATCH PORTAL</span>
-      </div>
-
-      {/* Form Content */}
-      <form
-        onSubmit={handleSubmit}
-        className="relative z-10 flex flex-col items-center justify-center my-auto w-full max-w-md mx-auto text-center py-6"
-      >
-        <h2 className="font-cinzel text-2xl sm:text-3xl font-bold tracking-[0.25em] text-white uppercase drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)]">
-          JOIN MATCH
-        </h2>
-        <p className="font-body text-xs text-gray-400 mt-2 mb-6">
-          Enter 6-character match code (or <span className="font-mono text-red-400">WIRE</span>)
-        </p>
-
-        {/* 6 code character inputs */}
-        <div className="flex gap-2 justify-center mb-6 w-full">
-          {code.map((char, idx) => (
-            <input
-              key={idx}
-              ref={el => { inputRefs.current[idx] = el; }}
-              type="text"
-              maxLength={1}
-              value={char}
-              onPaste={handlePaste}
-              onKeyDown={(e) => handleKeyDown(idx, e)}
-              onChange={(e) => handleDigitChange(idx, e.target.value)}
-              aria-label={`Match code character ${idx + 1}`}
-              className="w-11 h-13 sm:w-12 sm:h-14 text-center font-mono font-bold text-lg text-white bg-[#0e0a11]/90 border border-red-900/60 focus:border-red-500 rounded-lg shadow-[0_0_12px_rgba(225,29,72,0.25)] focus:shadow-[0_0_20px_rgba(225,29,72,0.6)] outline-none uppercase transition-all"
-            />
-          ))}
-        </div>
-
-        {/* Display Name Input */}
-        <div className="w-full text-left mb-5">
-          <label htmlFor="displayNameInput" className="block font-cinzel text-[11px] font-semibold tracking-[0.2em] text-gray-400 uppercase mb-2">
-            Display Name
-          </label>
-          <input
-            id="displayNameInput"
-            type="text"
-            maxLength={24}
-            autoComplete="off"
-            value={name}
-            onChange={(e) => {
-              setName(e.target.value);
-              setLocalError(null);
+    <EclipseStage
+      backgroundImage="/images/arena-archway.jpg"
+      overlayClassName="bg-gradient-to-b from-black/45 via-black/65 to-black/90"
+      maxWidthClass="max-w-lg"
+    >
+      <div className="flex-1 flex flex-col justify-between py-2">
+        <div className="flex items-center justify-between">
+          <button
+            type="button"
+            onClick={() => {
+              soundFX.playButtonClick();
+              onBack();
             }}
-            className="w-full py-3.5 px-4 rounded-xl font-body text-sm text-white bg-[#0e0a11]/90 border border-red-950/80 focus:border-red-600 outline-none shadow-inner transition-colors"
-            placeholder="Enter your name or team handle"
-          />
+            aria-label="Back to Home"
+            className="px-3 py-1.5 bg-[#080508] border border-[#c69c5d]/70 text-[#e6d7be] hover:bg-[#c69c5d] hover:text-black font-mono text-xs uppercase transition-colors"
+          >
+            &lt;-- BACK
+          </button>
+          <span className="font-mono text-[10px] tracking-[0.25em] text-[#e6c48a] uppercase">
+            MATCH PORTAL
+          </span>
         </div>
 
-        {/* Year of Study Selector (Junior vs Senior question bank) */}
-        <div className="w-full text-left mb-6">
-          <div className="flex items-center justify-between mb-2">
-            <label className="block font-cinzel text-[11px] font-semibold tracking-[0.2em] text-gray-400 uppercase">
-              Year of Study
+        <form onSubmit={handleSubmit} className="my-auto eclipse-slab-box flex flex-col items-center text-center">
+          <span className="eclipse-slab-label">[ JOIN CHAMBER ]</span>
+
+          <h2 className="font-display text-4xl tracking-[0.22em] text-[#f3ece0] uppercase pt-2">
+            JOIN MATCH
+          </h2>
+          <GoldDivider className="w-44 my-3" />
+
+          <p className="font-mono text-xs text-[#cbbba0] mb-4">
+            ENTER 6-CHARACTER ARENA CODE
+          </p>
+
+          <div className="grid grid-cols-6 gap-2 w-full max-w-[340px] mb-6">
+            {code.map((char, idx) => (
+              <input
+                key={idx}
+                ref={el => { inputRefs.current[idx] = el; }}
+                type="text"
+                maxLength={1}
+                value={char}
+                onPaste={handlePaste}
+                onKeyDown={(e) => handleKeyDown(idx, e)}
+                onChange={(e) => handleDigitChange(idx, e.target.value)}
+                aria-label={`Match code character ${idx + 1}`}
+                className="h-12 text-center font-mono font-bold text-lg text-[#f8efe4] bg-[#030204] border border-[#c69c5d]/70 focus:border-[#ff0033] outline-none uppercase transition-colors"
+              />
+            ))}
+          </div>
+
+          <div className="w-full text-left mb-5">
+            <label
+              htmlFor="displayNameInput"
+              className="block font-mono text-[11px] tracking-[0.2em] text-[#e6c48a] uppercase mb-2 text-center"
+            >
+              &gt; ENTER YOUR NAME
             </label>
-            <span className="font-mono text-[10px] text-red-400">
-              {year === 1 ? 'JUNIOR TRACK' : 'SENIOR TRACK'}
-            </span>
+            <input
+              id="displayNameInput"
+              type="text"
+              maxLength={24}
+              autoComplete="off"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                setLocalError(null);
+              }}
+              className="w-full py-3 px-4 font-mono text-sm text-white bg-[#030204] border border-[#c69c5d]/70 focus:border-[#ff0033] outline-none transition-colors"
+              placeholder="ORION"
+            />
           </div>
-          <div className="grid grid-cols-4 gap-2" role="radiogroup" aria-label="Year of Study">
-            {YEARS.map(([y, label]) => {
-              const active = year === y;
-              return (
-                <button
-                  key={y}
-                  type="button"
-                  role="radio"
-                  aria-checked={active}
-                  onClick={() => setYear(y)}
-                  className={`py-2.5 rounded-xl border font-cinzel transition-all flex flex-col items-center ${
-                    active
-                      ? 'bg-[#2a0b12] border-red-500 text-white shadow-[0_0_15px_rgba(225,29,72,0.4)]'
-                      : 'bg-[#0e0a11]/85 border-red-950/70 text-gray-400 hover:border-red-800 hover:text-gray-200'
-                  }`}
-                >
-                  <span className="font-mono text-base font-bold leading-none">{y}</span>
-                  <span className="text-[9px] tracking-widest mt-1">{label} YR</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
 
-        {/* Inline Error */}
-        {shownError && (
-          <div className="w-full mb-4 py-2.5 px-4 rounded-xl bg-red-950/70 border border-red-600 text-red-200 font-mono text-xs animate-snappy-shake">
-            ⚠ {shownError}
-          </div>
-        )}
+          {shownError && (
+            <div className="w-full mb-4 py-2.5 px-3 bg-[#240409] border border-[#ff0033] text-[#ff8599] font-mono text-xs animate-wrong-shake">
+              !! {shownError}
+            </div>
+          )}
 
-        {/* JOIN button */}
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full py-4 px-6 rounded-xl font-cinzel font-bold text-sm tracking-[0.25em] text-white uppercase bg-gradient-to-r from-[#991b1b] via-[#dc2626] to-[#7f1d1d] border border-red-500/50 shadow-[0_0_25px_rgba(220,38,38,0.5),inset_0_1px_2px_rgba(255,255,255,0.4)] hover:brightness-110 active:scale-[0.98] transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-        >
-          <span>{loading ? 'ENTERING ARENA...' : 'JOIN'}</span>
-          {!loading && <span className="text-xs">▶</span>}
-        </button>
-      </form>
+          <button
+            type="submit"
+            disabled={loading}
+            className="eclipse-btn-crimson w-full py-3 px-6 font-display text-2xl tracking-[0.22em] uppercase flex items-center justify-center gap-2 disabled:opacity-50"
+          >
+            <span>{loading ? 'ENTERING ARENA...' : 'JOIN'}</span>
+            {!loading && <span className="text-base">&gt;&gt;</span>}
+          </button>
 
-      <div className="h-6" />
-    </div>
+          <button
+            type="button"
+            onClick={() => onStartDemo(name || 'Orion')}
+            className="mt-4 font-mono text-xs text-[#e6c48a] hover:text-white underline underline-offset-4 transition-colors"
+          >
+            [OR LAUNCH INTERACTIVE SOLO DEMO]
+          </button>
+        </form>
+
+        <div className="h-4" />
+      </div>
+    </EclipseStage>
   );
 }

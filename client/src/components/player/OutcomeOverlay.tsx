@@ -1,12 +1,8 @@
 import { motion } from 'framer-motion';
-import { useEffect } from 'react';
 import type { Transition } from '../../types/game';
-import type { LevelTheme } from '../../theme/levelThemes';
-import { confettiBurst } from '../../animations/motionPresets';
 
 interface OutcomeOverlayProps {
   transition: Transition;
-  theme: LevelTheme;
   roast?: string;
   pointsGained?: number;
   newRoom?: number;
@@ -15,73 +11,58 @@ interface OutcomeOverlayProps {
 }
 
 const CONFIG: Record<Transition, {
-  emoji: string;
+  tag: string;
   label: string;
   sublabel: string;
-  bg: string;
-  border: string;
-  glow: string;
-  motionVariants: object;
+  panelClass: string;
+  accentColor: string;
 }> = {
   ADVANCE: {
-    emoji: '🚀',
+    tag: 'ASCEND',
     label: 'LEVEL CLEARED',
-    sublabel: 'Ascending to the next level',
-    bg: '#052e16',
-    border: '#16a34a',
-    glow: 'rgba(22,163,74,0.5)',
-    motionVariants: { initial: { y: 60, opacity: 0 }, animate: { y: 0, opacity: 1 }, exit: { y: -80, opacity: 0 } },
+    sublabel: 'Ascending to the next chamber',
+    panelClass: 'gothic-panel',
+    accentColor: '#c69c5d',
   },
   ENTER_ROOM: {
-    emoji: '⬇️',
+    tag: 'DROP',
     label: 'WRONG ANSWER',
     sublabel: 'Entering Recovery Room 1',
-    bg: '#450a0a',
-    border: '#dc2626',
-    glow: 'rgba(220,38,38,0.5)',
-    motionVariants: { initial: { y: -40, opacity: 0 }, animate: { y: 0, opacity: 1 }, exit: { y: 60, opacity: 0 } },
+    panelClass: 'gothic-panel-crimson',
+    accentColor: '#ff0033',
   },
   NEXT_ROOM: {
-    emoji: '⬇️⬇️',
+    tag: 'DROP',
     label: 'WRONG AGAIN',
-    sublabel: 'Going deeper into the rooms',
-    bg: '#3f0607',
-    border: '#b91c1c',
-    glow: 'rgba(185,28,28,0.6)',
-    motionVariants: { initial: { y: -40, opacity: 0 }, animate: { y: 0, opacity: 1 }, exit: { y: 60, opacity: 0 } },
+    sublabel: 'Descending deeper into recovery',
+    panelClass: 'gothic-panel-crimson',
+    accentColor: '#ff0033',
   },
   RETURN_TO_MAIN: {
-    emoji: '⬆️',
-    label: 'RECOVERED!',
-    sublabel: 'Climbing back to Main Question',
-    bg: '#422006',
-    border: '#d97706',
-    glow: 'rgba(217,119,6,0.5)',
-    motionVariants: { initial: { y: 40, opacity: 0 }, animate: { y: 0, opacity: 1 }, exit: { y: -60, opacity: 0 } },
+    tag: 'RECOVERED',
+    label: 'RECOVERED',
+    sublabel: 'Returning to Main Chamber',
+    panelClass: 'gothic-panel',
+    accentColor: '#e6c48a',
   },
   RESET: {
-    emoji: '💀',
+    tag: 'PURGE',
     label: 'FULL RESET',
     sublabel: 'Room 4 failed — Back to Level 0',
-    bg: '#1c0505',
-    border: '#7f1d1d',
-    glow: 'rgba(127,29,29,0.8)',
-    motionVariants: { initial: { scale: 1.3, opacity: 0 }, animate: { scale: 1, opacity: 1, x: [0, -8, 8, -6, 6, 0] }, exit: { scale: 0.8, opacity: 0 } },
+    panelClass: 'gothic-panel-crimson',
+    accentColor: '#ff0033',
   },
   FINISH: {
-    emoji: '🏆',
+    tag: 'COMPLETE',
     label: 'ASCENSION COMPLETE',
-    sublabel: 'You have conquered all 60 levels!',
-    bg: '#1c1708',
-    border: '#ca8a04',
-    glow: 'rgba(202,138,4,0.7)',
-    motionVariants: { initial: { scale: 0.5, opacity: 0 }, animate: { scale: 1, opacity: 1 }, exit: { scale: 1.2, opacity: 0 } },
+    sublabel: 'All 60 levels conquered',
+    panelClass: 'gothic-panel',
+    accentColor: '#e6c48a',
   },
 };
 
 export default function OutcomeOverlay({
   transition,
-  theme,
   roast,
   pointsGained,
   newRoom,
@@ -90,70 +71,54 @@ export default function OutcomeOverlay({
 }: OutcomeOverlayProps) {
   const cfg = CONFIG[transition];
 
-  useEffect(() => {
-    if (transition === 'FINISH' || transition === 'ADVANCE') {
-      confettiBurst({
-        colors: [theme.accent, theme.timerColor, '#ffffff'],
-        count: transition === 'FINISH' ? 160 : 50,
-      });
-    }
-  }, [transition, theme]);
-
   const dynamicSublabel =
     transition === 'NEXT_ROOM' && newRoom
-      ? `Descending into Recovery Room ${newRoom} / 4`
+      ? `DESCENDING INTO RECOVERY ROOM ${newRoom} / 4`
       : transition === 'RETURN_TO_MAIN' && newLevel !== undefined
-      ? `Returning to Main Question for Level ${newLevel + 1}`
+      ? `RETURNING TO MAIN QUESTION FOR LEVEL ${newLevel + 1}`
       : cfg.sublabel;
 
   return (
     <motion.div
       onClick={onDismiss}
-      className="fixed inset-0 z-50 flex items-center justify-center p-6 cursor-pointer"
-      style={{ background: `${cfg.bg}ee`, backdropFilter: 'blur(4px)' }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-6 cursor-pointer bg-black/90"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
     >
       <motion.div
-        className="relative flex flex-col items-center text-center rounded-3xl border p-8 w-full max-w-xs shadow-2xl"
-        style={{
-          background: cfg.bg,
-          borderColor: cfg.border,
-          boxShadow: `0 0 50px ${cfg.glow}`,
-        }}
-        {...cfg.motionVariants}
-        transition={{ type: 'spring', stiffness: 400, damping: 20 }}
+        className={`relative flex flex-col items-center text-center p-8 w-full max-w-sm ${cfg.panelClass}`}
+        initial={{ y: 16, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        exit={{ y: -12, opacity: 0 }}
+        transition={{ duration: 0.25 }}
       >
-        <div
-          className="absolute inset-0 rounded-3xl pointer-events-none"
-          style={{ boxShadow: `inset 0 0 40px ${cfg.glow}` }}
-        />
-
-        <div className="text-5xl mb-4">{cfg.emoji}</div>
+        <div className="font-mono text-xs tracking-[0.25em] mb-3 px-2 py-0.5 border border-current" style={{ color: cfg.accentColor }}>
+          [{cfg.tag}]
+        </div>
         <h2
-          className="font-cinzel text-2xl font-extrabold tracking-[0.2em] uppercase mb-2"
-          style={{ color: cfg.border, textShadow: `0 0 20px ${cfg.glow}` }}
+          className="font-display text-4xl tracking-[0.18em] uppercase mb-2"
+          style={{ color: cfg.accentColor }}
         >
           {cfg.label}
         </h2>
-        <p className="font-body text-sm text-gray-300 leading-relaxed">{dynamicSublabel}</p>
+        <p className="font-mono text-xs text-gray-300 leading-relaxed uppercase">{dynamicSublabel}</p>
 
         {pointsGained && pointsGained > 0 ? (
-          <div className="mt-3 font-mono text-xs font-bold text-amber-300">
+          <div className="mt-3 font-mono text-xs font-bold text-[#e6c48a]">
             +{pointsGained} PTS
           </div>
         ) : null}
 
         {roast && (
-          <p className="mt-3 font-mono text-[11px] text-red-200/90 border-t border-red-900/50 pt-3 leading-snug">
-            "{roast}"
+          <p className="mt-3 font-mono text-xs text-red-200 border-t border-[#ff0033]/40 pt-3 leading-snug">
+            &ldquo;{roast}&rdquo;
           </p>
         )}
 
         {transition === 'RESET' && (
-          <div className="mt-4 font-mono text-xs text-red-400 opacity-90 animate-pulse">
-            resets += 1 · progress zeroed
+          <div className="mt-4 font-mono text-xs text-[#ff0033] uppercase">
+            RESETS += 1 // PROGRESS ZEROED
           </div>
         )}
       </motion.div>

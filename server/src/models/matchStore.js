@@ -69,15 +69,22 @@ export const byRank = (a, b) =>
   (a.cheats - b.cheats);
 
 export function createMatchStore() {
+  const unifiedBank = [
+    ...JUNIOR.filter(q => q && q.lv >= 1),
+    ...SENIOR.filter(q => q && q.lv >= 1),
+  ];
+
   const store = {
     matchCode: ENV.DEFAULT_MATCH_CODE,
     status: 'live', // 'pending' | 'live' | 'paused' | 'ended'
     config: { ...DEFAULT_CONFIG },
     banks: {
+      all: unifiedBank,
       junior: [...JUNIOR],
       senior: [...SENIOR],
     },
     validationReports: {
+      all: computeCoverageReport(unifiedBank, 'all'),
       junior: computeCoverageReport(JUNIOR, 'junior'),
       senior: computeCoverageReport(SENIOR, 'senior'),
     },
@@ -105,6 +112,28 @@ export function createMatchStore() {
     for (const p of store.players.values()) if (p.online) n++;
     return n;
   };
+
+  const toLeanPlayer = (p) => ({
+    id: p.publicId,
+    name: p.name,
+    year: 1,
+    group: 'junior',
+    level: p.level,
+    phase: p.phase,
+    room: p.room,
+    resets: p.resets,
+    bestLevel: p.bestLevel,
+    solved: p.solved,
+    fails: p.fails,
+    hintsUsed: p.hintsUsed,
+    cheats: p.cheats,
+    score: p.score,
+    streak: p.streak,
+    finished: p.finished,
+    online: p.online,
+    status: p.status,
+    time: 0,
+  });
 
   const toClientPlayer = (p) => ({
     id: p.publicId,
@@ -181,8 +210,8 @@ export function createMatchStore() {
     return store.players.size < ENV.MAX_PLAYERS;
   };
 
-  const boardPayload = (list, rows = Infinity) => ({
-    players: list.slice(0, rows).map(toClientPlayer),
+  const boardPayload = (list, rows = Infinity, mapper = toClientPlayer) => ({
+    players: list.slice(0, rows).map(mapper),
     totalSouls: store.totalSoulsConsumed,
     total: list.length,
     online: onlineCount(),
@@ -197,6 +226,7 @@ export function createMatchStore() {
     ranked,
     onlineCount,
     toClientPlayer,
+    toLeanPlayer,
     newPlayer,
     pruneIdle,
     boardPayload,

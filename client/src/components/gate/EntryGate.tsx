@@ -21,7 +21,7 @@ export const GATE_CONFIG: GateConfig = {
   TEAMS: [
     { name: 'Team Alpha', code: 'ALPHA123' },
     { name: 'Team Beta',  code: 'BETA456' },
-    { name: 'Orion',      code: 'ECLIPSE2026' },
+    { name: 'Orion',      code: 'A7K3P9' },
     { name: 'Verdant',    code: 'ASCEND77' },
     { name: 'Cipher',     code: 'CIPHER99' },
   ],

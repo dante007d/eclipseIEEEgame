@@ -7,9 +7,9 @@ import CoverageHeatmap from './CoverageHeatmap';
 interface HostCreateScreenProps {
   config?: MatchConfig;
   matchCode?: string;
-  validationReports?: { junior?: ValidationReport; senior?: ValidationReport };
+  validationReports?: { all?: ValidationReport; junior?: ValidationReport; senior?: ValidationReport };
   onSaveConfig?: (cfg: MatchConfig) => void;
-  onUploadQuestions?: (rawText: string, targetGroup: YearGroup | 'both', cb: (res: { ok: boolean; error?: string; report?: ValidationReport }) => void) => void;
+  onUploadQuestions?: (rawText: string, targetGroup: YearGroup | 'both' | 'all', cb: (res: { ok: boolean; error?: string; report?: ValidationReport }) => void) => void;
   onRegenerateCode?: () => void;
 }
 
@@ -23,7 +23,6 @@ export default function HostCreateScreen({
 }: HostCreateScreenProps) {
   const [config, setConfig] = useState<MatchConfig>(propConfig ?? { ...DEFAULT_CONFIG });
   const [tab, setTab] = useState<'config' | 'questions'>('config');
-  const [targetGroup, setTargetGroup] = useState<YearGroup | 'both'>('junior');
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadNotice, setUploadNotice] = useState<string | null>(null);
   const [savedNotice, setSavedNotice] = useState(false);
@@ -34,7 +33,7 @@ export default function HostCreateScreen({
   }, [propConfig]);
 
   const activeReport: ValidationReport | undefined =
-    targetGroup === 'senior' ? validationReports?.senior : validationReports?.junior;
+    validationReports?.all ?? validationReports?.junior ?? validationReports?.senior;
 
   const handleFileUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -45,11 +44,11 @@ export default function HostCreateScreen({
     reader.onload = (ev) => {
       const text = String(ev.target?.result ?? '');
       if (onUploadQuestions) {
-        onUploadQuestions(text, targetGroup, (res) => {
+        onUploadQuestions(text, 'all', (res) => {
           if (!res.ok) {
             setUploadError(res.error || 'Upload validation failed.');
           } else {
-            setUploadNotice(`Loaded ${res.report?.loaded ?? 0} questions into ${targetGroup.toUpperCase()} bank!`);
+            setUploadNotice(`Loaded ${res.report?.loaded ?? 0} questions into the Unified Pool!`);
           }
         });
       }
@@ -73,9 +72,9 @@ export default function HostCreateScreen({
   };
 
   return (
-    <div className="relative w-full h-full flex flex-col bg-[#060709] overflow-hidden">
+    <div className="relative w-full h-full flex flex-col overflow-hidden">
       {/* Sub-header */}
-      <div className="relative z-10 px-5 py-3 border-b border-red-950/60 bg-[#08060b]/80 flex items-center justify-between">
+      <div className="relative z-10 px-5 py-3 border-b border-[#c69c5d]/35 bg-[#070407] flex items-center justify-between">
         <div>
           <h2 className="font-cinzel text-sm font-extrabold tracking-[0.2em] text-white uppercase">
             {GAME_NAME} // RULES & BANK
@@ -258,40 +257,29 @@ export default function HostCreateScreen({
               exit={{ opacity: 0, x: -10 }}
               className="space-y-4"
             >
-              {/* Bank Selector */}
-              <div className="flex items-center justify-between bg-[#0e0a12] border border-red-950/70 rounded-2xl p-4 flex-wrap gap-3">
-                <span className="font-cinzel text-xs font-bold tracking-wider text-gray-300 uppercase">
-                  Active Question Bank Target
-                </span>
-                <div className="flex gap-2">
-                  {[
-                    { id: 'junior', label: '1st Year (Junior)' },
-                    { id: 'senior', label: '2nd-4th Yr (Senior)' },
-                    { id: 'both', label: 'Both Tracks' },
-                  ].map(opt => (
-                    <button
-                      key={opt.id}
-                      onClick={() => setTargetGroup(opt.id as YearGroup | 'both')}
-                      className={`px-3 py-1.5 rounded-lg font-mono text-xs border transition-colors ${
-                        targetGroup === opt.id
-                          ? 'bg-red-800 border-red-500 text-white'
-                          : 'bg-black/40 border-gray-800 text-gray-400 hover:text-gray-200'
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
+              {/* Bank Info Header */}
+              <div className="flex items-center justify-between bg-[#0e0a12] border border-[#c69c5d]/25 rounded-2xl p-4 flex-wrap gap-3">
+                <div>
+                  <span className="font-cinzel text-xs font-bold tracking-wider text-[#e6c48a] uppercase">
+                    Unified Tournament Question Bank
+                  </span>
+                  <p className="font-mono text-[11px] text-gray-400 mt-0.5">
+                    Shared pool for all participants across Levels 1–60 and Recovery Rooms
+                  </p>
                 </div>
+                <span className="px-3 py-1 rounded-lg font-mono text-xs bg-red-900/40 border border-red-500/50 text-red-200">
+                  UNIFIED POOL
+                </span>
               </div>
 
               {/* Upload area */}
-              <div className="relative border-2 border-dashed border-red-950/80 bg-[#0e0a12] rounded-2xl p-6 text-center">
+              <div className="relative border-2 border-dashed border-[#c69c5d]/35 bg-[#0e0a12] rounded-2xl p-6 text-center">
                 <div className="text-2xl mb-2">📂</div>
-                <p className="font-cinzel text-xs text-gray-300 tracking-wider mb-1">
-                  Replace Question Bank via JSON or CSV
+                <p className="font-cinzel text-xs text-gray-200 tracking-wider mb-1">
+                  Replace Unified Question Bank via JSON or CSV
                 </p>
-                <p className="font-mono text-[11px] text-gray-500 mb-4">
-                  Default Ouroboros Junior (149) &amp; Senior (80) banks are already active across levels 1–60.
+                <p className="font-mono text-[11px] text-gray-400 mb-4">
+                  Default 229-question Ouroboros bank is active across levels 1–60.
                 </p>
                 <label className="inline-block py-2.5 px-5 rounded-xl font-cinzel text-xs font-bold tracking-wider text-white uppercase bg-red-700 hover:bg-red-600 transition-colors cursor-pointer">
                   Upload JSON / CSV
@@ -312,11 +300,11 @@ export default function HostCreateScreen({
 
               {activeReport && (
                 <>
-                  <div className="bg-[#0e0a12] border border-red-950/80 rounded-2xl p-4 space-y-2">
+                  <div className="bg-[#0e0a12] border border-[#c69c5d]/25 rounded-2xl p-4 space-y-2">
                     <h4 className="font-cinzel text-xs font-bold tracking-wider text-gray-300 uppercase">
-                      Bank Coverage Report ({targetGroup.toUpperCase()})
+                      Bank Coverage Report (ALL LEVELS)
                     </h4>
-                    <ul className="space-y-1.5 text-xs font-mono">
+                    <ul className="space-y-1.5 text-xs font-mono tabular-nums">
                       <li className="text-emerald-400">✔ {activeReport.loaded} active questions loaded (Levels 1–60)</li>
                       <li className="text-amber-400">⚠ {activeReport.warnings.length} difficulty band(s) have fewer than 4 variants</li>
                       {activeReport.errors.length > 0 && (

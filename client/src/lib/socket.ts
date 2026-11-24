@@ -1,15 +1,36 @@
 import { io, type Socket } from 'socket.io-client';
+import { getBackendMode } from './supabaseClient';
 
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001';
+const EXPLICIT_SOCKET_URL = import.meta.env.VITE_SOCKET_URL as string | undefined;
+const IS_LOCAL_HOST =
+  typeof window !== 'undefined' &&
+  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+const SOCKET_URL = EXPLICIT_SOCKET_URL || 'http://localhost:3001';
+const SHOULD_AUTO_CONNECT =
+  getBackendMode() === 'socket' && (Boolean(EXPLICIT_SOCKET_URL) || IS_LOCAL_HOST);
 
 export const socket: Socket = io(SOCKET_URL, {
   transports: ['websocket', 'polling'],
   tryAllTransports: true,
-  reconnectionDelay: 1000,
-  reconnectionDelayMax: 10000,
+  reconnectionAttempts: 2,
+  reconnectionDelay: 1500,
+  reconnectionDelayMax: 8000,
   randomizationFactor: 0.5,
-  autoConnect: true,
+  autoConnect: SHOULD_AUTO_CONNECT,
 });
+
+// Once connected cleanly, restore full infinite reconnection resilience for campus Wi-Fi drops
+socket.on('connect', () => {
+  socket.io.opts.reconnectionAttempts = Infinity;
+});
+
+export function ensureSocketConnected(): void {
+  if (getBackendMode() !== 'socket') return;
+  if (!socket.connected) {
+    socket.connect();
+  }
+}
 
 const SESSION_ID_KEY = 'eclipse_session_id';
 const PLAYER_META_KEY = 'eclipse_player_meta';

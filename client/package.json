@@ -12,6 +12,7 @@
     "test:ui": "vitest --ui"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.119.2",
     "canvas-confetti": "^1.9.3",
     "framer-motion": "^11.11.17",
     "react": "^18.3.1",

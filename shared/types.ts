@@ -64,6 +64,7 @@ export interface Question {
 
 export interface AnswerResult {
   correct: boolean;
+  isTimeout?: boolean;
   transition: Transition;
   explanation?: string;
   roast?: string;
@@ -114,5 +115,5 @@ export interface ValidationReport {
   perDifficulty: Record<number, number>;
   warnings: string[];
   errors: string[];
-  targetGroup?: YearGroup | 'both';
+  targetGroup?: YearGroup | 'both' | 'all';
 }

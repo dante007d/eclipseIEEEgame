@@ -1,8 +1,12 @@
 # Project Eclipse — The Ascension Quiz
 
-A full-stack real-time multiplayer technical tournament quiz built with **React + TypeScript + Tailwind + Framer Motion** (`/client`) and **Express + Socket.io** (`/server`).
+A production-ready multiplayer 60-level tournament quiz optimized for **500+ concurrent players**, featuring:
+- **Frontend:** React + TypeScript + Tailwind + Framer Motion (`/client`) — ready for **Vercel**
+- **Serverless Backend:** **Supabase** Postgres + Row Level Security + atomic PL/pgSQL RPCs + optional Edge Function (`/supabase`)
+- **Local / Self-Hosted Server:** Express + Socket.io (`/server`)
+- **Interactive Solo Demo Mode:** Built-in offline sandbox with simulated bots and stage controls
 
-Combines the **Project Eclipse Dark Gothic UI/UX** and **60-Level + 4 Recovery Rooms Cascade mechanism** with **Ouroboros**'s live multiplayer architecture, Junior/Senior year question banks, anti-cheat system, host management, and CSV export.
+---
 
 ## Game Mechanism (The Cascade)
 
@@ -14,29 +18,59 @@ Combines the **Project Eclipse Dark Gothic UI/UX** and **60-Level + 4 Recovery R
 - **Room k Correct:** Recover back to **MAIN** on the **same level** with a fresh variant question (host-configurable to advance level instead).
 - **Year Tracks:** 1st Year plays the Junior bank (149 questions across Levels 1–60); 2nd–4th Year plays the Senior bank (80 questions across Levels 1–60).
 
-## Running Locally
+---
 
-### 1. Start Both Server & Client
-```bash
+## Architecture for 500 Concurrent Players (Vercel + Supabase)
+
+1. **Zero Player Realtime WebSockets (`O(1)` scaling):** Players do not open persistent Supabase Realtime subscriptions (avoiding the 200-connection Free tier cap and $O(N^2)$ `postgres_changes` broadcast storms). Instead:
+   - Joining, answer evaluation, question picking, and rank calculation run via **atomic `SECURITY DEFINER` Postgres RPCs** through Supabase's **Supavisor Connection Pooler**.
+   - Every `eclipse_submit_answer` call uses row-level `FOR UPDATE` locking, computes the Cascade transition, shuffles the next question inside Postgres, and returns the player's updated rank in a single round-trip.
+   - Leaderboard pulses poll every `11–15s` with randomized per-client jitter (preventing synchronized thundering-herd spikes).
+2. **Zero Answer Leakage:** `questions.correct_option` and `players.active_correct_option_id` are protected by strict RLS with no `anon` `SELECT` policies. Tournament question banks are never bundled into the Vercel client JS.
+3. **Host & Projector:** Poll standings every `3s` (or via the Edge Function `/standings` endpoint with `s-maxage=2` CDN caching).
+
+---
+
+## Deploying to Vercel + Supabase
+
+### 1. Set Up Supabase Backend
+1. Create a new Supabase project (for 500 concurrent players, **Supabase Pro + Small/Medium Compute** is recommended for sustained connection pool headroom).
+2. Open the **SQL Editor** in Supabase and run:
+   - First: [`supabase/schema.sql`](supabase/schema.sql) (creates tables, indexes, RLS policies, default match `A7K3P9`, and all RPC functions)
+   - Second: [`supabase/seed.sql`](supabase/seed.sql) (seeds all 231 Junior & Senior questions)
+3. *(Optional)* Deploy the edge gateway:
+   ```bash
+   supabase functions deploy eclipse-api
+   ```
+
+### 2. Deploy Frontend to Vercel
+1. Import this repository in Vercel and set the **Root Directory** to `client` (uses `client/vercel.json` automatically).
+2. Add Environment Variables in Vercel:
+   ```env
+   VITE_BACKEND_MODE=supabase
+   VITE_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+   VITE_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
+   ```
+3. Deploy! Open your Vercel URL:
+   - **Player Portal (`/` & `/join`):** Default Match Code `A7K3P9` (or `WIRE`)
+   - **Solo Demo Mode:** Click **Try Interactive Solo Demo** on the home screen (no backend needed)
+   - **Host Dashboard (`/host`):** Default Host Passcode `ECLIPSE2026`
+   - **Projector View (`/projector`):** Live top-3 podium & Room 4 Danger Zone
+
+---
+
+## Running Locally & Load Testing
+
+```powershell
+# Start local Express + Socket.io server (:3001) + Vite client (:5173)
 npm run dev
-```
-This runs:
-- **Backend Server:** `http://localhost:3001`
-- **Frontend Client:** `http://localhost:5173`
 
-*(Or run individually in separate terminals: `npm run dev:server` and `npm run dev:client`)*
-
-### 2. Access Codes & Routes
-- **Player Portal (`/` & `/join`):**
-  - Default Match Code: `A7K3P9` (or `WIRE`)
-- **Host Dashboard (`/host`):**
-  - Default Host Passcode: `ECLIPSE2026` (override with `ADMIN_CODE` env var)
-  - Configure timers, levels, recovery fractions, upload custom JSON/CSV question banks with 60-level coverage heatmap, pause/resume/end match, start global countdown, disqualify players, and export CSV results.
-- **Big-Screen Projector (`/projector`):**
-  - Real-time top-3 podium, full standings, and live Room 4 Danger Zone display.
-
-### 3. Run All Tests & Production Build
-```bash
+# Run all unit tests (Server + Client)
 npm test
+
+# Run 500-concurrent-player WebSocket load test
+npm run loadtest:500
+
+# Build production bundle
 npm run build
 ```

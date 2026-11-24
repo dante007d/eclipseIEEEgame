@@ -5,10 +5,10 @@
  * Zero external Storybook dependency; it's just a regular React page.
  */
 
-import { useState, type ReactNode, type MouseEvent } from 'react';
+import { useState, type ReactNode } from 'react';
 import { motion } from 'framer-motion';
 import { ROOM_THEMES, type RoomId } from '@/theme/tokens';
-import { staggerContainer, staggerItem, confettiBurst } from '@/animations/motionPresets';
+import { staggerContainer, staggerItem } from '@/animations/motionPresets';
 
 import Button   from '@/components/Button';
 import Card     from '@/components/Card';
@@ -40,15 +40,8 @@ export default function Playground() {
   const removeToast = (id: string) =>
     setToasts(prev => prev.filter(t => t.id !== id));
 
-  const handleConfetti = (e: MouseEvent<HTMLButtonElement>) => {
-    const rect = (e.target as HTMLElement).getBoundingClientRect();
-    confettiBurst({
-      origin: {
-        x: (rect.left + rect.width / 2) / window.innerWidth,
-        y: (rect.top  + rect.height / 2) / window.innerHeight,
-      },
-      colors: [theme.bg, theme.accent, theme.card],
-    });
+  const handleAction = () => {
+    addToast('info', 'Action triggered.');
   };
 
   return (
@@ -117,7 +110,7 @@ export default function Playground() {
         {/* ── Buttons ── */}
         <Section title="🔘 Buttons" theme={theme}>
           <div className="flex flex-wrap gap-4 items-center">
-            <Button theme={theme} variant="primary"   size="sm" onClick={handleConfetti}>Small 🎉</Button>
+            <Button theme={theme} variant="primary"   size="sm" onClick={handleAction}>Small</Button>
             <Button theme={theme} variant="primary"   size="md">Medium Button</Button>
             <Button theme={theme} variant="primary"   size="lg">Large Button 🚀</Button>
             <Button theme={theme} variant="secondary" size="md">Secondary</Button>
@@ -243,8 +236,8 @@ export default function Playground() {
             <ProgressBar value={70} color={theme.accent} showLabel className="mb-6" />
             <div className="flex gap-3 justify-end">
               <Button variant="ghost"   size="sm" onClick={() => setModalOpen(false)}>Close</Button>
-              <Button theme={theme}     size="sm" onClick={() => { setModalOpen(false); confettiBurst(); }}>
-                Next Level 🚀
+              <Button theme={theme}     size="sm" onClick={() => setModalOpen(false)}>
+                Next Level
               </Button>
             </div>
           </Modal>
