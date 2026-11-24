@@ -82,8 +82,8 @@ export default function LandingScreen({
 
           <div className="flex items-center gap-2">
             <span className="hidden sm:inline-flex items-center gap-2 px-3 py-1.5 bg-[#080508] border border-[#c69c5d]/45 font-mono text-[11px] text-[#cbbba0] uppercase tabular-nums">
-              <span className={`w-2 h-2 ${connected ? 'bg-[#b8ff00]' : 'bg-[#ff6600]'}`} />
-              {connected ? `${leaderboard.online} ONLINE` : 'OFFLINE'}
+              <span className={`w-2 h-2 ${connected ? 'bg-[#b8ff00]' : 'bg-[#c69c5d]'}`} />
+              {connected ? `${leaderboard.online} ONLINE` : backendMode === 'supabase' ? 'SUPABASE' : 'STANDBY'}
             </span>
             <button
               type="button"

@@ -1,14 +1,21 @@
 import { io, type Socket } from 'socket.io-client';
 import { getBackendMode } from './supabaseClient';
 
+const SESSION_ID_KEY = 'eclipse_session_id';
+const PLAYER_META_KEY = 'eclipse_player_meta';
+const STRIKES_KEY = 'eclipse_cheat_strikes';
+const ADMIN_CODE_KEY = 'eclipse_admin_code';
+
 const EXPLICIT_SOCKET_URL = import.meta.env.VITE_SOCKET_URL as string | undefined;
-const IS_LOCAL_HOST =
+const HAS_SAVED_SESSION =
   typeof window !== 'undefined' &&
-  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+  Boolean(sessionStorage.getItem(PLAYER_META_KEY) || sessionStorage.getItem(ADMIN_CODE_KEY));
 
 const SOCKET_URL = EXPLICIT_SOCKET_URL || 'http://localhost:3001';
+// Connect lazily unless an explicit socket URL is set or an active session is resuming.
+// Prevents ws://localhost:3001 console error spam when viewing UI or running Solo Demo without the backend server.
 const SHOULD_AUTO_CONNECT =
-  getBackendMode() === 'socket' && (Boolean(EXPLICIT_SOCKET_URL) || IS_LOCAL_HOST);
+  getBackendMode() === 'socket' && (Boolean(EXPLICIT_SOCKET_URL) || HAS_SAVED_SESSION);
 
 export const socket: Socket = io(SOCKET_URL, {
   transports: ['websocket', 'polling'],
@@ -20,7 +27,7 @@ export const socket: Socket = io(SOCKET_URL, {
   autoConnect: SHOULD_AUTO_CONNECT,
 });
 
-// Once connected cleanly, restore full infinite reconnection resilience for campus Wi-Fi drops
+// Once connected cleanly, restore full infinite reconnection resilience for live matches
 socket.on('connect', () => {
   socket.io.opts.reconnectionAttempts = Infinity;
 });
@@ -31,11 +38,6 @@ export function ensureSocketConnected(): void {
     socket.connect();
   }
 }
-
-const SESSION_ID_KEY = 'eclipse_session_id';
-const PLAYER_META_KEY = 'eclipse_player_meta';
-const STRIKES_KEY = 'eclipse_cheat_strikes';
-const ADMIN_CODE_KEY = 'eclipse_admin_code';
 
 export function getSessionId(): string {
   let id = sessionStorage.getItem(SESSION_ID_KEY);

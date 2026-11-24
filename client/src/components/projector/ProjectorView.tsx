@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import type { PlayerState } from '../../types/game';
 import { GAME_NAME, SOCKET_EVENTS } from '../../types/game';
 import { getThemeForLevel } from '../../theme/levelThemes';
-import { socket } from '../../lib/socket';
+import { socket, ensureSocketConnected } from '../../lib/socket';
 import { getBackendMode, getSupabase } from '../../lib/supabaseClient';
 import { GoldDivider } from '../GothicPrimitives';
 
@@ -72,6 +72,7 @@ export default function ProjectorView({ onBack, globalTimeLeft = null }: Project
       return () => clearInterval(t);
     }
 
+    ensureSocketConnected();
     socket.emit('projector:join');
     const onPlayersUpdate = (data: { players: PlayerState[]; matchCode?: string }) => {
       setPlayers(data.players || []);
