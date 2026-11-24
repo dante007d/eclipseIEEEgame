@@ -1,31 +1,14 @@
-/**
- * xe2 – Projector Big-Screen View
- * Full-screen leaderboard with:
- *  - Top players ranked by level (desc) + time tie-break
- *  - Danger Zone right column
- *  - Animated podium top 3
- *  - Auto-scrolling live feed
- *  - Game Name / match code header
- */
-
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { PlayerState } from '../../types/game';
-import { GAME_NAME } from '../../types/game';
+import { GAME_NAME, SOCKET_EVENTS } from '../../types/game';
 import { getThemeForLevel } from '../../theme/levelThemes';
+import { socket } from '../../lib/socket';
 
-const MOCK_PLAYERS: PlayerState[] = [
-  { id: '1', name: 'Orion',   level: 32, phase: 'MAIN', room: 0, resets: 0, finished: false, bestLevel: 32 },
-  { id: '2', name: 'Verdant', level: 31, phase: 'ROOM', room: 2, resets: 1, finished: false, bestLevel: 31 },
-  { id: '3', name: 'Cipher',  level: 30, phase: 'MAIN', room: 0, resets: 0, finished: false, bestLevel: 30 },
-  { id: '4', name: 'Nova',    level: 28, phase: 'ROOM', room: 4, resets: 1, finished: false, bestLevel: 28 },
-  { id: '5', name: 'Echo',    level: 28, phase: 'ROOM', room: 3, resets: 2, finished: false, bestLevel: 29 },
-  { id: '6', name: 'Atlas',   level: 18, phase: 'ROOM', room: 4, resets: 3, finished: false, bestLevel: 20 },
-  { id: '7', name: 'Rune',    level: 17, phase: 'ROOM', room: 4, resets: 2, finished: false, bestLevel: 19 },
-  { id: '8', name: 'Fleet',   level: 15, phase: 'MAIN', room: 0, resets: 1, finished: false, bestLevel: 17 },
-  { id: '9', name: 'Storm',   level: 12, phase: 'ROOM', room: 2, resets: 0, finished: false, bestLevel: 14 },
-  { id: '10', name: 'Blaze',  level: 10, phase: 'MAIN', room: 0, resets: 4, finished: false, bestLevel: 15 },
-];
+interface ProjectorViewProps {
+  onBack?: () => void;
+  globalTimeLeft?: number | null;
+}
 
 function PodiumCard({ player, rank }: { player: PlayerState; rank: number }) {
   const theme = getThemeForLevel(player.level);
@@ -35,7 +18,7 @@ function PodiumCard({ player, rank }: { player: PlayerState; rank: number }) {
     <motion.div
       initial={{ opacity: 0, y: 30 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: rank * 0.15, type: 'spring', stiffness: 300, damping: 24 }}
+      transition={{ delay: rank * 0.12, type: 'spring', stiffness: 300, damping: 24 }}
       className="flex flex-col items-center gap-2"
     >
       <div className="text-3xl">{medals[rank]}</div>
@@ -47,7 +30,7 @@ function PodiumCard({ player, rank }: { player: PlayerState; rank: number }) {
       </div>
       <div className="font-mono text-xs text-gray-400">Lvl {player.level}</div>
       <div
-        className={`${heights[rank]} w-24 rounded-t-xl border-t-2 flex items-end justify-center pb-2`}
+        className={`${heights[rank]} w-24 sm:w-28 rounded-t-xl border-t-2 flex items-end justify-center pb-2`}
         style={{
           background: `linear-gradient(180deg, ${theme.accent}44, ${theme.accentSecondary}22)`,
           borderColor: theme.accent,
@@ -62,42 +45,98 @@ function PodiumCard({ player, rank }: { player: PlayerState; rank: number }) {
   );
 }
 
-export default function ProjectorView({ players = MOCK_PLAYERS, matchCode = 'A7K3P9' }: { players?: PlayerState[]; matchCode?: string }) {
-  const sorted = [...players].sort((a, b) => b.level - a.level);
-  const top3 = sorted.slice(0, 3);
-  const rest = sorted.slice(3);
-  const danger = sorted.filter(p => p.room >= 4);
+function fmtClock(s: number) {
+  return [Math.floor(s / 3600), Math.floor((s % 3600) / 60), s % 60]
+    .map(n => String(n).padStart(2, '0'))
+    .join(':');
+}
 
-  const [tick, setTick] = useState(0);
+export default function ProjectorView({ onBack, globalTimeLeft = null }: ProjectorViewProps) {
+  const [players, setPlayers] = useState<PlayerState[]>([]);
+  const [matchCode, setMatchCode] = useState('A7K3P9');
+  const [groupFilter, setGroupFilter] = useState<'all' | 'junior' | 'senior'>('all');
+
   useEffect(() => {
-    const t = setInterval(() => setTick(n => n + 1), 3000);
-    return () => clearInterval(t);
+    socket.emit('projector:join');
+    const onPlayersUpdate = (data: { players: PlayerState[]; matchCode?: string }) => {
+      setPlayers(data.players || []);
+      if (data.matchCode) setMatchCode(data.matchCode);
+    };
+    socket.on(SOCKET_EVENTS.PLAYERS_UPDATE, onPlayersUpdate);
+    return () => {
+      socket.off(SOCKET_EVENTS.PLAYERS_UPDATE, onPlayersUpdate);
+    };
   }, []);
+
+  const visible = players
+    .filter(p => p.status !== 'disqualified')
+    .filter(p => groupFilter === 'all' || p.group === groupFilter);
+
+  const top3 = visible.slice(0, 3);
+  const rest = visible.slice(3);
+  const danger = visible.filter(p => p.room >= 4 && p.status === 'active');
 
   return (
     <div className="w-full min-h-screen bg-[#030305] text-gray-200 flex flex-col overflow-hidden relative">
-      {/* Background atmospheric glow */}
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-red-900/15 blur-[120px] pointer-events-none" />
       <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[600px] h-[200px] bg-red-800/10 blur-[80px] pointer-events-none" />
 
       {/* Header bar */}
-      <div className="relative z-10 flex items-center justify-between px-10 py-5 border-b border-red-950/60 bg-[#05040a]/90 backdrop-blur">
-        <div>
-          <h1 className="font-cinzel text-3xl font-black tracking-[0.3em] text-white uppercase drop-shadow-[0_0_20px_rgba(225,29,72,0.5)]">
-            {GAME_NAME}
-          </h1>
-          <p className="font-cinzel text-xs tracking-[0.4em] text-red-500 font-bold uppercase mt-1">
-            THE ASCENSION QUIZ — LIVE LEADERBOARD
-          </p>
+      <div className="relative z-10 flex items-center justify-between px-6 sm:px-10 py-5 border-b border-red-950/60 bg-[#05040a]/90 backdrop-blur flex-wrap gap-4">
+        <div className="flex items-center gap-4">
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="px-3 py-1.5 rounded-lg border border-gray-800 text-gray-400 hover:text-white font-cinzel text-xs"
+            >
+              ← BACK
+            </button>
+          )}
+          <div>
+            <h1 className="font-cinzel text-2xl sm:text-3xl font-black tracking-[0.3em] text-white uppercase drop-shadow-[0_0_20px_rgba(225,29,72,0.5)]">
+              {GAME_NAME}
+            </h1>
+            <p className="font-cinzel text-[11px] tracking-[0.35em] text-red-500 font-bold uppercase mt-1">
+              THE ASCENSION QUIZ — LIVE STANDINGS
+            </p>
+          </div>
         </div>
-        <div className="flex items-center gap-6">
+
+        <div className="flex items-center gap-4 flex-wrap">
+          <div className="flex gap-1.5">
+            {[
+              { id: 'all', label: 'ALL' },
+              { id: 'junior', label: '1ST YR' },
+              { id: 'senior', label: '2ND-4TH YR' },
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setGroupFilter(tab.id as 'all' | 'junior' | 'senior')}
+                className={`px-3 py-1.5 rounded-lg font-mono text-xs border transition-colors ${
+                  groupFilter === tab.id
+                    ? 'bg-red-800 border-red-500 text-white'
+                    : 'bg-black/50 border-gray-800 text-gray-400 hover:text-white'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {globalTimeLeft !== null && (
+            <div className="px-4 py-2 rounded-xl bg-red-950/40 border border-red-600/60 font-mono text-sm font-bold text-red-300">
+              {fmtClock(globalTimeLeft)}
+            </div>
+          )}
+
           <div className="text-right">
             <div className="font-cinzel text-[10px] text-gray-500 tracking-wider uppercase">Match Code</div>
-            <div className="font-mono text-2xl font-black text-white tracking-[0.3em] drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">
+            <div className="font-mono text-xl sm:text-2xl font-black text-white tracking-[0.25em]">
               {matchCode}
             </div>
           </div>
-          <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-950/30 border border-red-700/50 shadow-[0_0_20px_rgba(225,29,72,0.25)]">
+
+          <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-950/30 border border-red-700/50">
             <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
             <span className="font-mono text-sm font-bold text-red-400">LIVE</span>
           </div>
@@ -105,15 +144,18 @@ export default function ProjectorView({ players = MOCK_PLAYERS, matchCode = 'A7K
       </div>
 
       {/* Main content */}
-      <div className="relative z-10 flex-1 flex gap-0 overflow-hidden">
+      <div className="relative z-10 flex-1 flex flex-col lg:flex-row overflow-hidden">
         {/* Leaderboard main column */}
-        <div className="flex-1 flex flex-col p-8 gap-8 overflow-hidden">
-          {/* Top 3 Podium */}
-          {top3.length >= 3 && (
-            <div className="flex justify-center items-end gap-8">
-              <PodiumCard player={top3[1]} rank={1} />
-              <PodiumCard player={top3[0]} rank={0} />
-              <PodiumCard player={top3[2]} rank={2} />
+        <div className="flex-1 flex flex-col p-6 sm:p-8 gap-8 overflow-hidden">
+          {top3.length > 0 ? (
+            <div className="flex justify-center items-end gap-4 sm:gap-8">
+              {top3[1] && <PodiumCard player={top3[1]} rank={1} />}
+              {top3[0] && <PodiumCard player={top3[0]} rank={0} />}
+              {top3[2] && <PodiumCard player={top3[2]} rank={2} />}
+            </div>
+          ) : (
+            <div className="text-center py-16 font-cinzel text-sm text-gray-600 tracking-widest uppercase">
+              Awaiting Ascendants to enter Match {matchCode}...
             </div>
           )}
 
@@ -128,22 +170,26 @@ export default function ProjectorView({ players = MOCK_PLAYERS, matchCode = 'A7K
                     layout
                     initial={{ opacity: 0, x: -20 }}
                     animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: i * 0.05 }}
                     className="flex items-center gap-4 px-5 py-3.5 rounded-xl border"
                     style={{
                       background: p.room >= 4 ? 'rgba(220,38,38,0.08)' : 'rgba(14,10,18,0.7)',
                       borderColor: p.room >= 4 ? '#7f1d1d' : '#1a1225',
                     }}
                   >
-                    <span className="font-mono text-sm text-gray-600 w-6 text-center">{i + 4}</span>
-                    <span className="font-cinzel text-sm font-bold text-gray-200 flex-1 tracking-wider">{p.name}</span>
-                    <span className="font-mono text-lg font-bold" style={{ color: theme.accent }}>Lvl {p.level}</span>
+                    <span className="font-mono text-sm text-gray-500 w-7 text-center">#{i + 4}</span>
+                    <span className="font-cinzel text-sm font-bold text-gray-100 flex-1 tracking-wider truncate">
+                      {p.name}
+                    </span>
+                    <span className="font-mono text-xs text-gray-500">YR {p.year}</span>
+                    <span className="font-mono text-lg font-bold" style={{ color: theme.accent }}>
+                      Lvl {p.level}
+                    </span>
                     <div className="flex gap-1">
                       {Array.from({ length: 4 }).map((_, j) => (
                         <div key={j} className={`w-2.5 h-2.5 rounded-full ${j < p.room ? 'bg-red-500' : 'bg-gray-800'}`} />
                       ))}
                     </div>
-                    <span className="font-mono text-xs text-gray-600 w-12 text-right">↺{p.resets}</span>
+                    <span className="font-mono text-xs text-gray-500 w-12 text-right">↺{p.resets}</span>
                   </motion.div>
                 );
               })}
@@ -152,12 +198,14 @@ export default function ProjectorView({ players = MOCK_PLAYERS, matchCode = 'A7K
         </div>
 
         {/* Danger Zone Sidebar */}
-        <div className="w-56 border-l border-red-950/60 bg-[#0f0407]/80 flex flex-col">
+        <div className="w-full lg:w-64 border-t lg:border-t-0 lg:border-l border-red-950/60 bg-[#0f0407]/80 flex flex-col">
           <div className="px-5 py-4 border-b border-red-950/50">
             <span className="font-cinzel text-sm font-extrabold tracking-[0.2em] text-red-500 uppercase flex items-center gap-2">
-              <span className="animate-pulse">⚠️</span> DANGER ZONE
+              <span className="animate-pulse">⚠</span> DANGER ZONE
             </span>
-            <p className="font-body text-[10px] text-gray-600 mt-1">One wrong answer = full reset</p>
+            <p className="font-body text-[10px] text-gray-500 mt-1">
+              Room 4 — one wrong answer = full reset to Level 0
+            </p>
           </div>
           <div className="flex-1 overflow-y-auto divide-y divide-red-950/30 p-2">
             <AnimatePresence>
@@ -168,38 +216,24 @@ export default function ProjectorView({ players = MOCK_PLAYERS, matchCode = 'A7K
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
-                  className="flex items-center gap-2 px-2 py-3 rounded-lg bg-red-950/20 border border-red-900/40 m-1"
+                  className="flex items-center gap-2 px-3 py-3 rounded-lg bg-red-950/25 border border-red-900/40 m-1"
                 >
-                  <span className="text-red-500 text-sm">⚠️</span>
+                  <span className="text-red-500 text-sm">⚠</span>
                   <div className="flex-1 min-w-0">
                     <div className="font-cinzel text-xs font-bold text-gray-200 truncate">{p.name}</div>
-                    <div className="font-mono text-[10px] text-gray-500">Lvl {p.level}</div>
+                    <div className="font-mono text-[10px] text-gray-400">Lvl {p.level}</div>
                   </div>
-                  <span className="font-mono text-[10px] font-bold text-red-400 border border-red-700 rounded px-1 py-0.5">R4</span>
+                  <span className="font-mono text-[10px] font-bold text-red-400 border border-red-700 rounded px-1.5 py-0.5">
+                    R4
+                  </span>
                 </motion.div>
               ))}
             </AnimatePresence>
             {danger.length === 0 && (
-              <div className="flex items-center justify-center h-20 text-gray-700 font-cinzel text-xs tracking-wider">
-                All safe
+              <div className="flex items-center justify-center h-24 text-gray-600 font-cinzel text-xs tracking-wider">
+                No players in Room 4
               </div>
             )}
-          </div>
-
-          {/* Live ticker at bottom */}
-          <div className="px-4 py-3 border-t border-red-950/50">
-            <div className="font-cinzel text-[9px] text-gray-600 tracking-wider uppercase mb-1">Activity</div>
-            <AnimatePresence mode="wait">
-              <motion.p
-                key={tick}
-                initial={{ opacity: 0, y: 5 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -5 }}
-                className="font-body text-[11px] text-gray-500"
-              >
-                {['Orion answered correctly!', 'Nova is in Room 4!', 'Cipher advanced to Lvl 31', 'Atlas answered Room 4...', 'Rune timed out in Room 3'][tick % 5]}
-              </motion.p>
-            </AnimatePresence>
           </div>
         </div>
       </div>

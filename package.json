@@ -1,0 +1,14 @@
+{
+  "name": "eclipse-ieee-game",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Project Eclipse — 60-Level Cascade Multiplayer Quiz Game",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:server": "npm run dev --prefix server",
+    "dev:client": "npm run dev --prefix client",
+    "build": "npm run build --prefix client",
+    "test": "npm test --prefix server && npm test --prefix client"
+  }
+}

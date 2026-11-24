@@ -1,13 +1,3 @@
-/**
- * xe2 – Outcome overlay animations
- * ADVANCE       → rise (green, rocket up)
- * ENTER_ROOM    → drop (red, fall down)
- * NEXT_ROOM     → drop (darker red, deeper fall)
- * RETURN_TO_MAIN → climb back (amber, bounce up)
- * RESET         → collapse (full crimson flash, shake)
- * FINISH        → celebration (gold confetti)
- */
-
 import { motion } from 'framer-motion';
 import { useEffect } from 'react';
 import type { Transition } from '../../types/game';
@@ -17,6 +7,11 @@ import { confettiBurst } from '../../animations/motionPresets';
 interface OutcomeOverlayProps {
   transition: Transition;
   theme: LevelTheme;
+  roast?: string;
+  pointsGained?: number;
+  newRoom?: number;
+  newLevel?: number;
+  onDismiss?: () => void;
 }
 
 const CONFIG: Record<Transition, {
@@ -57,7 +52,7 @@ const CONFIG: Record<Transition, {
   },
   RETURN_TO_MAIN: {
     emoji: '⬆️',
-    label: 'CORRECT!',
+    label: 'RECOVERED!',
     sublabel: 'Climbing back to Main Question',
     bg: '#422006',
     border: '#d97706',
@@ -66,8 +61,8 @@ const CONFIG: Record<Transition, {
   },
   RESET: {
     emoji: '💀',
-    label: 'RESET',
-    sublabel: 'Back to Level 0 — The Eclipse watches',
+    label: 'FULL RESET',
+    sublabel: 'Room 4 failed — Back to Level 0',
     bg: '#1c0505',
     border: '#7f1d1d',
     glow: 'rgba(127,29,29,0.8)',
@@ -84,21 +79,37 @@ const CONFIG: Record<Transition, {
   },
 };
 
-export default function OutcomeOverlay({ transition, theme }: OutcomeOverlayProps) {
+export default function OutcomeOverlay({
+  transition,
+  theme,
+  roast,
+  pointsGained,
+  newRoom,
+  newLevel,
+  onDismiss,
+}: OutcomeOverlayProps) {
   const cfg = CONFIG[transition];
 
   useEffect(() => {
     if (transition === 'FINISH' || transition === 'ADVANCE') {
       confettiBurst({
         colors: [theme.accent, theme.timerColor, '#ffffff'],
-        count: transition === 'FINISH' ? 160 : 60,
+        count: transition === 'FINISH' ? 160 : 50,
       });
     }
   }, [transition, theme]);
 
+  const dynamicSublabel =
+    transition === 'NEXT_ROOM' && newRoom
+      ? `Descending into Recovery Room ${newRoom} / 4`
+      : transition === 'RETURN_TO_MAIN' && newLevel !== undefined
+      ? `Returning to Main Question for Level ${newLevel + 1}`
+      : cfg.sublabel;
+
   return (
     <motion.div
-      className="absolute inset-0 z-50 flex items-center justify-center p-6"
+      onClick={onDismiss}
+      className="fixed inset-0 z-50 flex items-center justify-center p-6 cursor-pointer"
       style={{ background: `${cfg.bg}ee`, backdropFilter: 'blur(4px)' }}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -114,9 +125,8 @@ export default function OutcomeOverlay({ transition, theme }: OutcomeOverlayProp
         {...cfg.motionVariants}
         transition={{ type: 'spring', stiffness: 400, damping: 20 }}
       >
-        {/* Glow halo */}
         <div
-          className="absolute inset-0 rounded-3xl"
+          className="absolute inset-0 rounded-3xl pointer-events-none"
           style={{ boxShadow: `inset 0 0 40px ${cfg.glow}` }}
         />
 
@@ -127,11 +137,23 @@ export default function OutcomeOverlay({ transition, theme }: OutcomeOverlayProp
         >
           {cfg.label}
         </h2>
-        <p className="font-body text-sm text-gray-400 leading-relaxed">{cfg.sublabel}</p>
+        <p className="font-body text-sm text-gray-300 leading-relaxed">{dynamicSublabel}</p>
+
+        {pointsGained && pointsGained > 0 ? (
+          <div className="mt-3 font-mono text-xs font-bold text-amber-300">
+            +{pointsGained} PTS
+          </div>
+        ) : null}
+
+        {roast && (
+          <p className="mt-3 font-mono text-[11px] text-red-200/90 border-t border-red-900/50 pt-3 leading-snug">
+            "{roast}"
+          </p>
+        )}
 
         {transition === 'RESET' && (
-          <div className="mt-4 font-mono text-xs text-red-600 opacity-80 animate-pulse">
-            resets += 1
+          <div className="mt-4 font-mono text-xs text-red-400 opacity-90 animate-pulse">
+            resets += 1 · progress zeroed
           </div>
         )}
       </motion.div>

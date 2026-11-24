@@ -1,179 +1,91 @@
-/* PROJECT ECLIPSE – Bold Editorial / Neo-Brutalist Architecture */
+/* PROJECT ECLIPSE // Dark Gothic Ascension CSS */
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* ═══════════════════════════════════════════════════════════════════
-   OPINIONATED COLOR SYSTEM & PHYSICAL TOURNAMENT TOKENS
-   ═══════════════════════════════════════════════════════════════════ */
 :root {
-  --color-cream: #F5F2EB;
-  --color-paper: #FFFFFF;
-  --color-ink: #111111;
-  --color-acid: #CCFF00;
-  --color-tomato: #FF2A14;
-  --color-cobalt: #0038FF;
-  --color-muted: #777570;
-
-  --font-display: 'Bricolage Grotesque', sans-serif;
-  --font-mono: 'Space Mono', monospace;
-  --font-data: 'JetBrains Mono', monospace;
-
-  /* Custom timing curves */
-  --ease-reveal: cubic-bezier(0.22, 1, 0.36, 1);
-  --ease-wipe: cubic-bezier(0.76, 0, 0.24, 1);
-  --duration-reveal: 0.75s;
-  --duration-press: 0.12s;
+  --eclipse-bg: #060709;
+  --eclipse-surface: #0e0a12;
+  --eclipse-crimson: #e11d48;
+  --eclipse-gold: #eab308;
 }
 
-/* ═══════════════════════════════════════════════════════════════════
-   GLOBAL RESETS
-   ═══════════════════════════════════════════════════════════════════ */
-html {
-  scroll-behavior: smooth;
-  background-color: var(--color-cream);
-  color: var(--color-ink);
-}
-
-body {
+html, body {
   margin: 0;
-  background-color: var(--color-cream);
-  color: var(--color-ink);
-  font-family: var(--font-mono);
-  overflow-x: hidden;
+  min-height: 100%;
+  background-color: var(--eclipse-bg);
+  color: #f3f4f6;
+  font-family: 'Inter', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
 }
 
-/* Custom Selection */
-::selection {
-  background-color: var(--color-acid);
-  color: var(--color-ink);
-}
-
-/* Custom Scrollbar */
+/* Custom Dark Scrollbar */
 ::-webkit-scrollbar {
-  width: 10px;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: var(--color-cream);
-  border-left: 2px solid var(--color-ink);
+  background: #060709;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--color-ink);
+  background: #3f121d;
+  border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-tomato);
+  background: #e11d48;
 }
 
-/* ═══════════════════════════════════════════════════════════════════
-   BRUTALIST UTILITIES (Hard Shadows, Physical Presses, Ticket Edges)
-   ═══════════════════════════════════════════════════════════════════ */
-
-/* Physical button press: collapses shadow on click */
-.btn-press {
-  border: 3px solid var(--color-ink);
-  box-shadow: 6px 6px 0 var(--color-ink);
-  transition: transform var(--duration-press) var(--ease-reveal),
-              box-shadow var(--duration-press) var(--ease-reveal);
-  cursor: pointer;
-}
-.btn-press:hover {
-  transform: translate(-2px, -2px);
-  box-shadow: 8px 8px 0 var(--color-ink);
-}
-.btn-press:active {
-  transform: translate(6px, 6px);
-  box-shadow: 0 0 0 var(--color-ink);
+/* Floating crimson embers for EclipseSky */
+@keyframes emberRise {
+  0% {
+    transform: translateY(100vh) scale(0.6);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.75;
+  }
+  85% {
+    opacity: 0.45;
+  }
+  100% {
+    transform: translateY(-10vh) scale(1.1);
+    opacity: 0;
+  }
 }
 
-/* Brutalist card with hard shadow */
-.brut-box {
-  border: 3px solid var(--color-ink);
-  box-shadow: 6px 6px 0 var(--color-ink);
-  background-color: var(--color-paper);
+.ember {
+  position: absolute;
+  bottom: -12px;
+  width: 3px;
+  height: 3px;
+  border-radius: 9999px;
+  background: #fb7185;
+  box-shadow: 0 0 8px #e11d48, 0 0 14px rgba(251, 191, 36, 0.5);
+  animation: emberRise 7s linear infinite;
+  pointer-events: none;
 }
 
-.brut-box-acid {
-  border: 3px solid var(--color-ink);
-  box-shadow: 6px 6px 0 var(--color-ink);
-  background-color: var(--color-acid);
+/* Anti-cheat blur veil when tab is backgrounded */
+.veiled-text {
+  filter: blur(14px);
+  opacity: 0.25;
+  transition: filter 0.15s ease, opacity 0.15s ease;
 }
 
-.brut-box-tomato {
-  border: 3px solid var(--color-ink);
-  box-shadow: 6px 6px 0 var(--color-ink);
-  background-color: var(--color-tomato);
-  color: #FFFFFF;
-}
-
-.brut-box-dark {
-  border: 3px solid var(--color-ink);
-  box-shadow: 6px 6px 0 var(--color-tomato);
-  background-color: var(--color-ink);
-  color: #FFFFFF;
-}
-
-/* Snappy Gate Shake Animation */
 @keyframes snappyShake {
   0%, 100% { transform: translateX(0); }
-  20% { transform: translateX(-12px); }
-  40% { transform: translateX(12px); }
-  60% { transform: translateX(-8px); }
-  80% { transform: translateX(8px); }
+  20% { transform: translateX(-8px); }
+  40% { transform: translateX(8px); }
+  60% { transform: translateX(-5px); }
+  80% { transform: translateX(5px); }
 }
+
 .animate-snappy-shake {
-  animation: snappyShake 0.4s var(--ease-wipe) both;
+  animation: snappyShake 0.4s ease-out both;
 }
 
-/* Continuous Marquee Ticker */
-@keyframes tickerTape {
-  0% { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
-}
-.marquee-track {
-  display: flex;
-  width: max-content;
-  animation: tickerTape 22s linear infinite;
-}
-.marquee-track:hover {
-  animation-play-state: paused;
-}
-
-/* Custom Desktop Crosshair / Dot Cursor */
-.brut-cursor-dot {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 14px;
-  height: 14px;
-  background-color: var(--color-tomato);
-  border: 2px solid var(--color-ink);
-  pointer-events: none;
-  transform: translate(-50%, -50%);
-  z-index: 99999;
-  transition: width 0.15s, height 0.15s, background-color 0.15s;
-}
-
-/* Perforated ticket edge effect */
-.ticket-perforations {
-  background-image: radial-gradient(circle, transparent 6px, var(--color-paper) 6px);
-  background-size: 20px 20px;
-}
-
-/* Subtle Film / Print Noise Texture */
-.grain-overlay::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.04'/%3E%3C/svg%3E");
-  pointer-events: none;
-  z-index: 99998;
-}
-
-/* ═══════════════════════════════════════════════════════════════════
-   PREFERS-REDUCED-MOTION
-   ═══════════════════════════════════════════════════════════════════ */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.001ms !important;
@@ -181,10 +93,7 @@ body {
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
   }
-  .marquee-track {
-    animation: none !important;
-  }
-  .brut-cursor-dot {
-    display: none !important;
+  .ember {
+    display: none;
   }
 }

@@ -1,80 +1,58 @@
-/**
- * xe2 – Host: Create Match & Configuration Screen
- * Features:
- *  - Match config form (timers, levels, room fractions, optional params)
- *  - Displays generated match code
- *  - Upload questions (CSV/JSON)
- *  - Validation report + coverage heatmap
- */
-
-import { useState } from 'react';
+import { useState, useEffect, type ChangeEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import type { MatchConfig } from '../../types/game';
+import type { MatchConfig, ValidationReport, YearGroup } from '../../types/game';
 import { DEFAULT_CONFIG, GAME_NAME } from '../../types/game';
 import CoverageHeatmap from './CoverageHeatmap';
 
 interface HostCreateScreenProps {
-  onMatchCreated?: (code: string, config: MatchConfig) => void;
+  config?: MatchConfig;
+  matchCode?: string;
+  validationReports?: { junior?: ValidationReport; senior?: ValidationReport };
+  onSaveConfig?: (cfg: MatchConfig) => void;
+  onUploadQuestions?: (rawText: string, targetGroup: YearGroup | 'both', cb: (res: { ok: boolean; error?: string; report?: ValidationReport }) => void) => void;
+  onRegenerateCode?: () => void;
 }
 
-interface ValidationResult {
-  loaded: number;
-  difficulties: number[];
-  perDifficulty: Record<number, number>;
-  warnings: string[];
-  errors: string[];
-}
-
-function generateCode() {
-  return Array.from({ length: 6 }, () =>
-    'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 32)]
-  ).join('');
-}
-
-function computeValidation(raw: string): ValidationResult | null {
-  try {
-    const qs = JSON.parse(raw);
-    if (!Array.isArray(qs)) return null;
-    const perDiff: Record<number, number> = {};
-    qs.forEach((q: { difficulty?: number }) => {
-      const d = q.difficulty ?? 1;
-      perDiff[d] = (perDiff[d] ?? 0) + 1;
-    });
-    const diffs = Object.keys(perDiff).map(Number).sort((a, b) => a - b);
-    const warnings: string[] = [];
-    const errors: string[] = [];
-    for (let d = 1; d <= 60; d++) {
-      const cnt = perDiff[d] ?? 0;
-      if (cnt === 0) errors.push(`Difficulty ${d}: no questions`);
-      else if (cnt < 4) warnings.push(`Difficulty ${d}: only ${cnt} question(s) (< 4)`);
-    }
-    return { loaded: qs.length, difficulties: diffs, perDifficulty: perDiff, warnings, errors };
-  } catch {
-    return null;
-  }
-}
-
-export default function HostCreateScreen({ onMatchCreated }: HostCreateScreenProps) {
-  const [config, setConfig] = useState<MatchConfig>({ ...DEFAULT_CONFIG });
-  const [matchCode] = useState(generateCode);
-  const [_uploadContent, setUploadContent] = useState<string | null>(null);
-  const [validation, setValidation] = useState<ValidationResult | null>(null);
-  const [uploadError, setUploadError] = useState<string | null>(null);
+export default function HostCreateScreen({
+  config: propConfig,
+  matchCode = 'A7K3P9',
+  validationReports,
+  onSaveConfig,
+  onUploadQuestions,
+  onRegenerateCode,
+}: HostCreateScreenProps) {
+  const [config, setConfig] = useState<MatchConfig>(propConfig ?? { ...DEFAULT_CONFIG });
   const [tab, setTab] = useState<'config' | 'questions'>('config');
-  const [showCode, setShowCode] = useState(false);
+  const [targetGroup, setTargetGroup] = useState<YearGroup | 'both'>('junior');
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadNotice, setUploadNotice] = useState<string | null>(null);
+  const [savedNotice, setSavedNotice] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  useEffect(() => {
+    if (propConfig) setConfig(propConfig);
+  }, [propConfig]);
+
+  const activeReport: ValidationReport | undefined =
+    targetGroup === 'senior' ? validationReports?.senior : validationReports?.junior;
+
+  const handleFileUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploadError(null);
+    setUploadNotice(null);
     const reader = new FileReader();
     reader.onload = (ev) => {
-      const text = ev.target?.result as string;
-      setUploadContent(text);
-      const v = computeValidation(text);
-      if (!v) setUploadError('Invalid JSON format. Expected array of question objects.');
-      else setValidation(v);
+      const text = String(ev.target?.result ?? '');
+      if (onUploadQuestions) {
+        onUploadQuestions(text, targetGroup, (res) => {
+          if (!res.ok) {
+            setUploadError(res.error || 'Upload validation failed.');
+          } else {
+            setUploadNotice(`Loaded ${res.report?.loaded ?? 0} questions into ${targetGroup.toUpperCase()} bank!`);
+          }
+        });
+      }
     };
     reader.readAsText(file);
   };
@@ -82,9 +60,10 @@ export default function HostCreateScreen({ onMatchCreated }: HostCreateScreenPro
   const patchConfig = (patch: Partial<MatchConfig>) =>
     setConfig(c => ({ ...c, ...patch }));
 
-  const handleCreate = () => {
-    setShowCode(true);
-    onMatchCreated?.(matchCode, config);
+  const handleSave = () => {
+    onSaveConfig?.(config);
+    setSavedNotice(true);
+    setTimeout(() => setSavedNotice(false), 2200);
   };
 
   const handleCopy = () => {
@@ -95,39 +74,31 @@ export default function HostCreateScreen({ onMatchCreated }: HostCreateScreenPro
 
   return (
     <div className="relative w-full h-full flex flex-col bg-[#060709] overflow-hidden">
-      {/* Header */}
-      <div className="relative z-10 px-5 pt-5 pb-3 border-b border-red-950/60 bg-[#08060b]/80 flex items-center justify-between">
+      {/* Sub-header */}
+      <div className="relative z-10 px-5 py-3 border-b border-red-950/60 bg-[#08060b]/80 flex items-center justify-between">
         <div>
-          <h1 className="font-cinzel text-lg font-extrabold tracking-[0.2em] text-white uppercase">
-            {GAME_NAME}
-          </h1>
-          <p className="font-cinzel text-[10px] text-red-500 tracking-[0.3em] font-bold uppercase mt-0.5">
-            Host — Create Match
-          </p>
+          <h2 className="font-cinzel text-sm font-extrabold tracking-[0.2em] text-white uppercase">
+            {GAME_NAME} // RULES & BANK
+          </h2>
         </div>
-        <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-red-800 to-red-500 flex items-center justify-center font-cinzel text-xs font-bold text-white border border-red-400 shadow-[0_0_12px_rgba(225,29,72,0.5)]">
-          H
+        <div className="flex gap-2">
+          {(['config', 'questions'] as const).map(t => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`px-3 py-1.5 rounded-lg font-cinzel text-xs font-bold tracking-wider uppercase transition-all ${
+                tab === t
+                  ? 'text-white bg-red-800 border border-red-500'
+                  : 'text-gray-400 bg-black/40 border border-gray-800 hover:text-gray-200'
+              }`}
+            >
+              {t === 'config' ? 'Rules & Timers' : 'Question Bank'}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Tab switcher */}
-      <div className="relative z-10 flex border-b border-red-950/50">
-        {(['config', 'questions'] as const).map(t => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`flex-1 py-3 font-cinzel text-xs font-bold tracking-wider uppercase transition-all ${
-              tab === t
-                ? 'text-red-400 border-b-2 border-red-500 bg-red-950/20'
-                : 'text-gray-500 hover:text-gray-300'
-            }`}
-          >
-            {t === 'config' ? '⚙️ Configuration' : '📋 Questions'}
-          </button>
-        ))}
-      </div>
-
-      <div className="relative z-10 flex-1 overflow-y-auto px-4 py-4">
+      <div className="relative z-10 flex-1 overflow-y-auto px-4 sm:px-6 py-5 max-w-4xl w-full mx-auto">
         <AnimatePresence mode="wait">
           {tab === 'config' && (
             <motion.div
@@ -137,61 +108,72 @@ export default function HostCreateScreen({ onMatchCreated }: HostCreateScreenPro
               exit={{ opacity: 0, x: 10 }}
               className="space-y-4"
             >
-              {/* Match Code Preview */}
-              <div className="bg-[#0e0a12] border border-red-950/80 rounded-2xl p-4">
-                <div className="font-cinzel text-[10px] text-gray-500 tracking-wider uppercase mb-2">Match Code</div>
-                <div className="flex items-center gap-3">
-                  <span className="font-mono text-3xl font-black text-white tracking-widest drop-shadow-[0_0_10px_rgba(255,255,255,0.2)]">
-                    {matchCode}
-                  </span>
-                  <button
-                    onClick={handleCopy}
-                    className="text-xs font-mono text-gray-400 hover:text-white bg-black/40 border border-gray-800 px-2 py-1.5 rounded-lg transition-colors"
-                  >
-                    {copied ? '✓ Copied' : '📋'}
-                  </button>
+              {/* Match Code Card */}
+              <div className="bg-[#0e0a12] border border-red-950/80 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <div className="font-cinzel text-[10px] text-gray-500 tracking-wider uppercase mb-1">Active Match Code</div>
+                  <div className="flex items-center gap-3">
+                    <span className="font-mono text-3xl font-black text-white tracking-widest">
+                      {matchCode}
+                    </span>
+                    <button
+                      onClick={handleCopy}
+                      className="text-xs font-mono text-gray-300 hover:text-white bg-black/50 border border-gray-800 px-2.5 py-1.5 rounded-lg transition-colors"
+                    >
+                      {copied ? '✓ Copied' : 'Copy'}
+                    </button>
+                  </div>
                 </div>
-                <p className="font-body text-xs text-gray-600 mt-2">Share this code with players to join.</p>
+                {onRegenerateCode && (
+                  <button
+                    onClick={onRegenerateCode}
+                    className="px-3.5 py-2 rounded-xl font-cinzel text-xs font-bold tracking-wider uppercase text-amber-300 bg-amber-950/30 border border-amber-700/60 hover:bg-amber-900/40 transition-colors"
+                  >
+                    Regenerate Code
+                  </button>
+                )}
               </div>
 
-              {/* Config Fields */}
-              {[
-                { label: 'Main Timer (seconds)', key: 'mainTimerSec', min: 15, max: 120, step: 5 },
-                { label: 'Room Timer (seconds)', key: 'roomTimerSec', min: 10, max: 60, step: 5 },
-                { label: 'Total Levels', key: 'totalLevels', min: 10, max: 60, step: 10 },
-                { label: 'Rooms Per Level', key: 'roomsPerLevel', min: 1, max: 4, step: 1 },
-              ].map(({ label, key, min, max, step }) => (
-                <div key={key} className="bg-[#0e0a12] border border-red-950/50 rounded-xl p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="font-cinzel text-[11px] text-gray-400 uppercase tracking-wider">{label}</label>
-                    <span className="font-mono text-sm font-bold text-red-400">
-                      {config[key as keyof MatchConfig] as number}
-                    </span>
+              {/* Sliders Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {[
+                  { label: 'Main Timer (seconds)', key: 'mainTimerSec', min: 15, max: 120, step: 5 },
+                  { label: 'Room Timer (seconds)', key: 'roomTimerSec', min: 10, max: 90, step: 5 },
+                  { label: 'Total Levels', key: 'totalLevels', min: 5, max: 60, step: 5 },
+                  { label: 'Rooms Per Level', key: 'roomsPerLevel', min: 1, max: 4, step: 1 },
+                ].map(({ label, key, min, max, step }) => (
+                  <div key={key} className="bg-[#0e0a12] border border-red-950/50 rounded-xl p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="font-cinzel text-[11px] text-gray-300 uppercase tracking-wider">{label}</label>
+                      <span className="font-mono text-sm font-bold text-red-400">
+                        {config[key as keyof MatchConfig] as number}
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={min}
+                      max={max}
+                      step={step}
+                      value={config[key as keyof MatchConfig] as number}
+                      onChange={e => patchConfig({ [key]: Number(e.target.value) })}
+                      className="w-full accent-red-600 cursor-pointer"
+                    />
+                    <div className="flex justify-between font-mono text-[9px] text-gray-600 mt-1">
+                      <span>{min}</span><span>{max}</span>
+                    </div>
                   </div>
-                  <input
-                    type="range"
-                    min={min}
-                    max={max}
-                    step={step}
-                    value={config[key as keyof MatchConfig] as number}
-                    onChange={e => patchConfig({ [key]: Number(e.target.value) })}
-                    className="w-full accent-red-600 cursor-pointer"
-                  />
-                  <div className="flex justify-between font-mono text-[9px] text-gray-700 mt-1">
-                    <span>{min}</span><span>{max}</span>
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
 
               {/* Room Difficulty Fractions */}
               <div className="bg-[#0e0a12] border border-red-950/50 rounded-xl p-4">
-                <div className="font-cinzel text-[11px] text-gray-400 uppercase tracking-wider mb-3">
-                  Room Difficulty Fractions
+                <div className="font-cinzel text-[11px] text-gray-300 uppercase tracking-wider mb-3">
+                  Room Difficulty Fractions (relative to current level)
                 </div>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-4 gap-3">
                   {config.roomDifficultyFractions.map((f, i) => (
                     <div key={i} className="flex flex-col items-center gap-1.5">
-                      <span className="font-cinzel text-[10px] text-gray-500">R{i + 1}</span>
+                      <span className="font-cinzel text-[10px] text-gray-400">Room {i + 1}</span>
                       <input
                         type="number"
                         min={0.1}
@@ -203,75 +185,68 @@ export default function HostCreateScreen({ onMatchCreated }: HostCreateScreenPro
                           updated[i] = Number(e.target.value);
                           patchConfig({ roomDifficultyFractions: updated });
                         }}
-                        className="w-full text-center bg-black/40 border border-gray-800 rounded-lg py-2 font-mono text-sm text-red-400 font-bold outline-none focus:border-red-700"
+                        className="w-full text-center bg-black/50 border border-gray-800 rounded-lg py-2 font-mono text-sm text-red-400 font-bold outline-none focus:border-red-600"
                       />
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* Optional params */}
-              <div className="bg-[#0e0a12] border border-red-950/50 rounded-xl p-4 space-y-3">
-                <div className="font-cinzel text-[11px] text-gray-400 uppercase tracking-wider">Optional</div>
-                <div className="flex items-center justify-between">
-                  <label className="font-body text-xs text-gray-400">Match Duration (minutes)</label>
-                  <input
-                    type="number"
-                    placeholder="∞"
-                    value={config.matchDurationMinutes ?? ''}
-                    onChange={e => patchConfig({ matchDurationMinutes: e.target.value ? Number(e.target.value) : null })}
-                    className="w-20 text-right bg-black/40 border border-gray-800 rounded-lg py-1 px-2 font-mono text-sm text-gray-200 outline-none focus:border-red-700"
-                  />
+              {/* Return Mode & Optional Rules */}
+              <div className="bg-[#0e0a12] border border-red-950/50 rounded-xl p-4 space-y-4">
+                <div className="flex items-center justify-between flex-wrap gap-3">
+                  <div>
+                    <div className="font-cinzel text-[11px] text-gray-300 uppercase tracking-wider">Room Recovery Behaviour</div>
+                    <div className="font-body text-xs text-gray-500 mt-0.5">
+                      What happens when a player answers Room 1–4 correctly
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => patchConfig({ returnMode: 'same_question' })}
+                      className={`px-3 py-1.5 rounded-lg font-mono text-xs border transition-colors ${
+                        config.returnMode === 'same_question'
+                          ? 'bg-red-800 border-red-500 text-white'
+                          : 'bg-black/40 border-gray-800 text-gray-400'
+                      }`}
+                    >
+                      Same Level (Variant)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => patchConfig({ returnMode: 'next_level' })}
+                      className={`px-3 py-1.5 rounded-lg font-mono text-xs border transition-colors ${
+                        config.returnMode === 'next_level'
+                          ? 'bg-red-800 border-red-500 text-white'
+                          : 'bg-black/40 border-gray-800 text-gray-400'
+                      }`}
+                    >
+                      Advance Level + 1
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center justify-between">
-                  <label className="font-body text-xs text-gray-400">Max Main Fails Per Level</label>
+
+                <div className="flex items-center justify-between border-t border-gray-900 pt-3">
+                  <label className="font-body text-xs text-gray-300">Max Main Fails Per Level (anti-stall)</label>
                   <input
                     type="number"
-                    placeholder="off"
+                    min={1}
+                    max={20}
+                    placeholder="Off"
                     value={config.maxMainFailsPerLevel ?? ''}
                     onChange={e => patchConfig({ maxMainFailsPerLevel: e.target.value ? Number(e.target.value) : null })}
-                    className="w-20 text-right bg-black/40 border border-gray-800 rounded-lg py-1 px-2 font-mono text-sm text-gray-200 outline-none focus:border-red-700"
+                    className="w-24 text-right bg-black/50 border border-gray-800 rounded-lg py-1.5 px-3 font-mono text-sm text-gray-200 outline-none focus:border-red-600"
                   />
                 </div>
               </div>
 
-              {/* Create button */}
               <button
-                onClick={handleCreate}
-                className="w-full py-4 rounded-xl font-cinzel font-extrabold text-sm tracking-[0.25em] text-white uppercase bg-gradient-to-r from-[#991b1b] via-[#dc2626] to-[#7f1d1d] border border-red-500/50 shadow-[0_0_25px_rgba(220,38,38,0.4)] hover:brightness-110 active:scale-[0.98] transition-all"
+                onClick={handleSave}
+                className="w-full py-3.5 rounded-xl font-cinzel font-extrabold text-sm tracking-[0.2em] text-white uppercase bg-gradient-to-r from-[#991b1b] via-[#dc2626] to-[#7f1d1d] border border-red-500/50 shadow-[0_0_25px_rgba(220,38,38,0.4)] hover:brightness-110 transition-all"
               >
-                CREATE MATCH ▶
+                {savedNotice ? '✓ LIVE CONFIG APPLIED' : 'APPLY LIVE CONFIGURATION ▶'}
               </button>
-
-              {/* Show code overlay */}
-              <AnimatePresence>
-                {showCode && (
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur p-6"
-                    onClick={() => setShowCode(false)}
-                  >
-                    <div className="bg-[#0e0a12] border border-red-700 rounded-3xl p-8 text-center shadow-2xl max-w-xs w-full"
-                      onClick={e => e.stopPropagation()}
-                    >
-                      <div className="text-4xl mb-3">🎮</div>
-                      <h3 className="font-cinzel text-lg font-bold text-white mb-1">Match Created!</h3>
-                      <p className="font-body text-xs text-gray-400 mb-6">Share this code with players:</p>
-                      <div className="font-mono text-4xl font-black text-red-400 tracking-[0.3em] mb-6 drop-shadow-[0_0_15px_rgba(225,29,72,0.7)]">
-                        {matchCode}
-                      </div>
-                      <button
-                        onClick={() => setShowCode(false)}
-                        className="w-full py-3 rounded-xl font-cinzel text-xs font-bold tracking-wider text-white uppercase bg-red-700 hover:bg-red-600 transition-colors"
-                      >
-                        Got it — Go to Dashboard
-                      </button>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
             </motion.div>
           )}
 
@@ -283,54 +258,75 @@ export default function HostCreateScreen({ onMatchCreated }: HostCreateScreenPro
               exit={{ opacity: 0, x: -10 }}
               className="space-y-4"
             >
+              {/* Bank Selector */}
+              <div className="flex items-center justify-between bg-[#0e0a12] border border-red-950/70 rounded-2xl p-4 flex-wrap gap-3">
+                <span className="font-cinzel text-xs font-bold tracking-wider text-gray-300 uppercase">
+                  Active Question Bank Target
+                </span>
+                <div className="flex gap-2">
+                  {[
+                    { id: 'junior', label: '1st Year (Junior)' },
+                    { id: 'senior', label: '2nd-4th Yr (Senior)' },
+                    { id: 'both', label: 'Both Tracks' },
+                  ].map(opt => (
+                    <button
+                      key={opt.id}
+                      onClick={() => setTargetGroup(opt.id as YearGroup | 'both')}
+                      className={`px-3 py-1.5 rounded-lg font-mono text-xs border transition-colors ${
+                        targetGroup === opt.id
+                          ? 'bg-red-800 border-red-500 text-white'
+                          : 'bg-black/40 border-gray-800 text-gray-400 hover:text-gray-200'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {/* Upload area */}
-              <div
-                className="relative border-2 border-dashed rounded-2xl p-8 text-center transition-colors"
-                style={{ borderColor: '#2a1419', background: '#0e0a12' }}
-              >
-                <div className="text-3xl mb-3">📂</div>
-                <p className="font-cinzel text-xs text-gray-400 tracking-wider mb-4">
-                  Upload questions as JSON or CSV
+              <div className="relative border-2 border-dashed border-red-950/80 bg-[#0e0a12] rounded-2xl p-6 text-center">
+                <div className="text-2xl mb-2">📂</div>
+                <p className="font-cinzel text-xs text-gray-300 tracking-wider mb-1">
+                  Replace Question Bank via JSON or CSV
                 </p>
-                <label className="py-2.5 px-5 rounded-xl font-cinzel text-xs font-bold tracking-wider text-white uppercase bg-red-700 hover:bg-red-600 transition-colors cursor-pointer">
-                  Choose File
+                <p className="font-mono text-[11px] text-gray-500 mb-4">
+                  Default Ouroboros Junior (149) &amp; Senior (80) banks are already active across levels 1–60.
+                </p>
+                <label className="inline-block py-2.5 px-5 rounded-xl font-cinzel text-xs font-bold tracking-wider text-white uppercase bg-red-700 hover:bg-red-600 transition-colors cursor-pointer">
+                  Upload JSON / CSV
                   <input type="file" accept=".json,.csv" className="hidden" onChange={handleFileUpload} />
                 </label>
               </div>
 
-              {/* Upload error */}
               {uploadError && (
-                <div className="bg-red-950/40 border border-red-700 rounded-xl p-3 text-xs text-red-400 font-mono">
-                  ⚠️ {uploadError}
+                <div className="bg-red-950/40 border border-red-700 rounded-xl p-3 text-xs text-red-300 font-mono">
+                  ⚠ {uploadError}
+                </div>
+              )}
+              {uploadNotice && (
+                <div className="bg-emerald-950/40 border border-emerald-700 rounded-xl p-3 text-xs text-emerald-300 font-mono">
+                  ✔ {uploadNotice}
                 </div>
               )}
 
-              {/* Validation report */}
-              {validation && (
-                <div className="bg-[#0e0a12] border border-red-950/80 rounded-2xl p-4 space-y-3">
-                  <h4 className="font-cinzel text-xs font-bold tracking-wider text-gray-300 uppercase">Validation Report</h4>
-                  <ul className="space-y-2 text-xs font-body">
-                    <li className="flex items-center gap-2 text-emerald-400">✔ {validation.loaded} questions loaded</li>
-                    <li className="flex items-center gap-2 text-emerald-400">✔ Difficulties: {validation.difficulties[0]} – {validation.difficulties[validation.difficulties.length - 1]}</li>
-                    {validation.warnings.length > 0 && (
-                      <li className="text-amber-400">⚠️ {validation.warnings.length} difficulty band(s) below 4 questions</li>
-                    )}
-                    {validation.errors.length > 0 && (
-                      <li className="text-red-400">❌ {validation.errors.length} difficulty band(s) with no questions</li>
-                    )}
-                  </ul>
-                </div>
-              )}
+              {activeReport && (
+                <>
+                  <div className="bg-[#0e0a12] border border-red-950/80 rounded-2xl p-4 space-y-2">
+                    <h4 className="font-cinzel text-xs font-bold tracking-wider text-gray-300 uppercase">
+                      Bank Coverage Report ({targetGroup.toUpperCase()})
+                    </h4>
+                    <ul className="space-y-1.5 text-xs font-mono">
+                      <li className="text-emerald-400">✔ {activeReport.loaded} active questions loaded (Levels 1–60)</li>
+                      <li className="text-amber-400">⚠ {activeReport.warnings.length} difficulty band(s) have fewer than 4 variants</li>
+                      {activeReport.errors.length > 0 && (
+                        <li className="text-red-400">✖ {activeReport.errors.length} difficulty band(s) missing questions</li>
+                      )}
+                    </ul>
+                  </div>
 
-              {/* Heatmap */}
-              {validation && (
-                <CoverageHeatmap perDifficulty={validation.perDifficulty} />
-              )}
-
-              {!validation && !uploadError && (
-                <div className="text-center py-10 text-gray-700 font-cinzel text-xs tracking-wider">
-                  Upload a JSON file to see coverage
-                </div>
+                  <CoverageHeatmap perDifficulty={activeReport.perDifficulty} />
+                </>
               )}
             </motion.div>
           )}
