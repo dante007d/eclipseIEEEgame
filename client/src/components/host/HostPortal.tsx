@@ -52,8 +52,8 @@ export default function HostPortal({ onBackHome, onOpenProjector, globalTimeLeft
   const [activeTab, setActiveTab] = useState<'live' | 'setup'>('live');
 
   const [players, setPlayers] = useState<PlayerState[]>([]);
-  const [matchCode, setMatchCode] = useState('A7K3P9');
-  const [status, setStatus] = useState<MatchStatus>('live');
+  const [matchCode, setMatchCode] = useState('DANTE');
+  const [status, setStatus] = useState<MatchStatus>('pending');
   const [config, setConfig] = useState<MatchConfig | undefined>(undefined);
   const [validationReports, setValidationReports] = useState<{
     all?: ValidationReport;

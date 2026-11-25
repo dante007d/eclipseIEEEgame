@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import type { PlayerState } from '../../types/game';
+import type { MatchStatus, PlayerState } from '../../types/game';
 import { GAME_NAME, SOCKET_EVENTS } from '../../types/game';
 import { getThemeForLevel } from '../../theme/levelThemes';
 import { socket, ensureSocketConnected } from '../../lib/socket';
@@ -53,7 +53,8 @@ function fmtClock(s: number) {
 export default function ProjectorView({ onBack, globalTimeLeft = null }: ProjectorViewProps) {
   const mode = getBackendMode();
   const [players, setPlayers] = useState<PlayerState[]>([]);
-  const [matchCode, setMatchCode] = useState('A7K3P9');
+  const [matchCode, setMatchCode] = useState('DANTE');
+  const [matchStatus, setMatchStatus] = useState<MatchStatus>('pending');
   const [sbTimer, setSbTimer] = useState<number | null>(null);
 
   useEffect(() => {
@@ -64,6 +65,7 @@ export default function ProjectorView({ onBack, globalTimeLeft = null }: Project
         if (data?.ok) {
           setPlayers(data.players || []);
           if (data.matchCode) setMatchCode(data.matchCode);
+          if (data.status) setMatchStatus(data.status);
           setSbTimer(data.globalRemainingMs != null ? Math.ceil(data.globalRemainingMs / 1000) : null);
         }
       };
@@ -74,13 +76,19 @@ export default function ProjectorView({ onBack, globalTimeLeft = null }: Project
 
     ensureSocketConnected();
     socket.emit('projector:join');
-    const onPlayersUpdate = (data: { players: PlayerState[]; matchCode?: string }) => {
+    const onPlayersUpdate = (data: { players: PlayerState[]; matchCode?: string; status?: MatchStatus }) => {
       setPlayers(data.players || []);
       if (data.matchCode) setMatchCode(data.matchCode);
+      if (data.status) setMatchStatus(data.status);
+    };
+    const onMatchStatus = (data: { status?: MatchStatus }) => {
+      if (data.status) setMatchStatus(data.status);
     };
     socket.on(SOCKET_EVENTS.PLAYERS_UPDATE, onPlayersUpdate);
+    socket.on(SOCKET_EVENTS.MATCH_STATUS, onMatchStatus);
     return () => {
       socket.off(SOCKET_EVENTS.PLAYERS_UPDATE, onPlayersUpdate);
+      socket.off(SOCKET_EVENTS.MATCH_STATUS, onMatchStatus);
     };
   }, [mode, matchCode]);
 
@@ -126,19 +134,30 @@ export default function ProjectorView({ onBack, globalTimeLeft = null }: Project
 
         <div className="flex items-center gap-3 flex-wrap">
           {activeTimer !== null && (
-            <div className="px-4 py-2 rounded-xl bg-red-950/60 border border-red-500/60 font-mono tabular-nums text-sm font-bold text-red-200">
+            <div className="px-4 py-2 bg-[#140507] border border-red-500/60 font-mono tabular-nums text-sm font-bold text-red-200">
               {fmtClock(activeTimer)}
             </div>
           )}
 
-          <div className="gothic-panel px-4 py-1.5 rounded-xl text-right">
-            <div className="font-cinzel text-[9px] text-[#cbbba0] tracking-wider uppercase">Match Code</div>
-            <div className="font-mono tabular-nums text-lg sm:text-xl font-black text-white tracking-[0.25em]">{matchCode}</div>
-          </div>
-
-          <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-red-950/40 border border-red-600/60">
-            <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
-            <span className="font-mono text-xs font-bold text-red-300">LIVE</span>
+          <div
+            className={`flex items-center gap-2 px-3.5 py-2 border ${
+              matchStatus === 'live'
+                ? 'bg-red-950/50 border-red-600/70'
+                : 'bg-[#120b05] border-[#c69c5d]/60'
+            }`}
+          >
+            <span
+              className={`w-2.5 h-2.5 ${
+                matchStatus === 'live' ? 'bg-red-500 animate-pulse' : 'bg-[#c69c5d] animate-ping'
+              }`}
+            />
+            <span
+              className={`font-mono text-xs font-bold uppercase ${
+                matchStatus === 'live' ? 'text-red-300' : 'text-[#e6c48a]'
+              }`}
+            >
+              {matchStatus === 'pending' ? "WAITING FOR MASTER'S COMMAND" : matchStatus.toUpperCase()}
+            </span>
           </div>
         </div>
       </header>
@@ -193,8 +212,10 @@ export default function ProjectorView({ onBack, globalTimeLeft = null }: Project
                 ))}
                 {visible.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="py-12 text-center font-cinzel text-xs text-gray-500 uppercase tracking-widest">
-                      Awaiting Ascendants in Match {matchCode}...
+                    <td colSpan={5} className="py-12 text-center font-mono text-xs text-gray-500 uppercase tracking-widest">
+                      {matchStatus === 'pending'
+                        ? "Awaiting Ascendants // Waiting for Master's Command..."
+                        : 'Awaiting Ascendants in Arena...'}
                     </td>
                   </tr>
                 )}

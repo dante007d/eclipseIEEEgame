@@ -15,7 +15,7 @@ interface HostCreateScreenProps {
 
 export default function HostCreateScreen({
   config: propConfig,
-  matchCode = 'A7K3P9',
+  matchCode = 'DANTE',
   validationReports,
   onSaveConfig,
   onUploadQuestions,
@@ -27,6 +27,7 @@ export default function HostCreateScreen({
   const [uploadNotice, setUploadNotice] = useState<string | null>(null);
   const [savedNotice, setSavedNotice] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [revealCode, setRevealCode] = useState(false);
 
   useEffect(() => {
     if (propConfig) setConfig(propConfig);
@@ -107,17 +108,23 @@ export default function HostCreateScreen({
               exit={{ opacity: 0, x: 10 }}
               className="space-y-4"
             >
-              {/* Match Code Card */}
-              <div className="bg-[#0e0a12] border border-red-950/80 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4">
+              {/* Match Code Card (Hidden by default) */}
+              <div className="bg-[#080508] border border-[#c69c5d]/40 p-4 flex flex-wrap items-center justify-between gap-4">
                 <div>
-                  <div className="font-cinzel text-[10px] text-gray-500 tracking-wider uppercase mb-1">Active Match Code</div>
+                  <div className="font-mono text-[10px] text-gray-400 tracking-wider uppercase mb-1">Active Match Code</div>
                   <div className="flex items-center gap-3">
-                    <span className="font-mono text-3xl font-black text-white tracking-widest">
-                      {matchCode}
+                    <span className="font-mono text-2xl font-bold text-[#e6c48a] tracking-widest">
+                      {revealCode ? matchCode : '•••••'}
                     </span>
                     <button
+                      onClick={() => setRevealCode(v => !v)}
+                      className="text-xs font-mono text-gray-300 hover:text-white bg-black border border-[#c69c5d]/40 px-2.5 py-1.5 transition-colors"
+                    >
+                      {revealCode ? 'Hide' : 'Show'}
+                    </button>
+                    <button
                       onClick={handleCopy}
-                      className="text-xs font-mono text-gray-300 hover:text-white bg-black/50 border border-gray-800 px-2.5 py-1.5 rounded-lg transition-colors"
+                      className="text-xs font-mono text-gray-300 hover:text-white bg-black border border-gray-800 px-2.5 py-1.5 transition-colors"
                     >
                       {copied ? '✓ Copied' : 'Copy'}
                     </button>

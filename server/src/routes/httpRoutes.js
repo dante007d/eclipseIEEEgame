@@ -10,7 +10,6 @@ export function createHttpRouter(matchContext) {
       ok: true,
       game: GAME_NAME,
       status: store.status,
-      matchCode: store.matchCode,
       players: store.players.size,
       online: onlineCount(),
     });
@@ -21,7 +20,7 @@ export function createHttpRouter(matchContext) {
   });
 
   router.get('/', (_req, res) => {
-    res.send(`${GAME_NAME} // SERVER ONLINE (CODE: ${store.matchCode})`);
+    res.send(`${GAME_NAME} // SERVER ONLINE`);
   });
 
   return router;

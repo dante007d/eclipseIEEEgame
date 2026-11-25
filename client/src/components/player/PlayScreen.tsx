@@ -837,6 +837,22 @@ export default function PlayScreen({
               </div>
             )}
           </div>
+        ) : matchStatus === 'pending' ? (
+          <div className="my-auto eclipse-slab-box p-6 sm:p-8 text-center max-w-lg mx-auto w-full">
+            <span className="eclipse-slab-label">[ STAGING CHAMBER // HOLD ]</span>
+            <div className="inline-flex items-center gap-2 px-3 py-1 bg-[#120b05] border border-[#c69c5d]/60 font-mono text-[11px] text-[#e6c48a] uppercase tracking-widest mt-1 mb-4 tabular-nums">
+              <span className="w-2 h-2 bg-[#c69c5d] animate-ping" />
+              LOCKED IN // {pulse.total || 1} ASCENDANTS STANDING BY
+            </div>
+            <h2 className="font-display text-3xl sm:text-5xl text-[#e6c48a] tracking-[0.16em] uppercase leading-none mb-3 animate-glitch">
+              WAITING FOR MASTER&apos;S COMMAND
+            </h2>
+            <GoldDivider className="my-3 w-44 mx-auto" />
+            <p className="font-mono text-xs text-[#cbbba0] leading-relaxed uppercase">
+              AGENT <strong className="text-white">{player.name.toUpperCase()}</strong> HAS ENTERED THE CHAMBER.
+              HOLD POSITION — THE TRIAL BEGINS THE MOMENT MASTER ISSUES START.
+            </p>
+          </div>
         ) : (
           <div className="my-auto text-center font-mono text-xs text-[#e6c48a] uppercase tracking-widest">
             SUMMONING NEXT CHAMBER...

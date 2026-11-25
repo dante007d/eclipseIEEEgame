@@ -11,7 +11,7 @@ SET search_path TO public, extensions;
 CREATE TABLE IF NOT EXISTS public.matches (
   id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   code                text UNIQUE NOT NULL,
-  status              text NOT NULL DEFAULT 'live' CHECK (status IN ('pending', 'live', 'paused', 'ended')),
+  status              text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'live', 'paused', 'ended')),
   config              jsonb NOT NULL DEFAULT '{
     "totalLevels": 60,
     "roomsPerLevel": 4,
@@ -154,10 +154,18 @@ ALTER TABLE public.feed_events ENABLE ROW LEVEL SECURITY;
 
 -- ─── 4. DEFAULT MATCH BOOTSTRAP ──────────────────────────────────────────────
 
+-- Migrate previous default match code if present
+UPDATE public.matches
+SET code = 'DANTE',
+    status = 'pending',
+    admin_code_hash = encode(digest('stalin', 'sha256'), 'hex')
+WHERE code = 'DANTE'
+  AND NOT EXISTS (SELECT 1 FROM public.matches WHERE code = 'DANTE');
+
 INSERT INTO public.matches (code, status, admin_code_hash)
 VALUES (
-  'A7K3P9',
-  'live',
+  'DANTE',
+  'pending',
   encode(digest('stalin', 'sha256'), 'hex')
 )
 ON CONFLICT (code) DO UPDATE SET admin_code_hash = EXCLUDED.admin_code_hash;
@@ -334,11 +342,7 @@ DECLARE
   v_q jsonb;
   v_rank int;
 BEGIN
-  IF v_code = 'WIRE' THEN
-    SELECT * INTO v_match FROM public.matches ORDER BY created_at DESC LIMIT 1;
-  ELSE
-    SELECT * INTO v_match FROM public.matches WHERE code = v_code LIMIT 1;
-  END IF;
+  SELECT * INTO v_match FROM public.matches WHERE code = v_code LIMIT 1;
 
   IF NOT FOUND THEN
     RETURN jsonb_build_object('ok', false, 'error', 'Invalid Match Code.');
@@ -397,13 +401,15 @@ BEGIN
     END IF;
   END IF;
 
-  IF v_player.status = 'active' AND NOT v_player.finished AND v_match.status <> 'ended' THEN
-    IF v_player.active_question IS NOT NULL AND NOT v_player.active_answered AND (v_player.active_deadline_at > now() + interval '500 milliseconds' OR v_match.status = 'paused') THEN
+  IF v_player.status = 'active' AND NOT v_player.finished AND v_match.status = 'live' THEN
+    IF v_player.active_question IS NOT NULL AND NOT v_player.active_answered AND v_player.active_deadline_at > now() + interval '500 milliseconds' THEN
       v_q := v_player.active_question;
     ELSE
       v_q := public.eclipse_issue_question(v_player.id, v_match.config, 0);
       SELECT * INTO v_player FROM public.players WHERE id = v_player.id;
     END IF;
+  ELSIF v_player.status = 'active' AND NOT v_player.finished AND v_match.status = 'paused' AND v_player.active_question IS NOT NULL AND NOT v_player.active_answered THEN
+    v_q := v_player.active_question;
   END IF;
 
   SELECT count(*) + 1 INTO v_rank
@@ -453,7 +459,17 @@ BEGIN
   WHERE match_id = v_match.id AND session_id = p_session_id
   FOR UPDATE;
 
-  IF NOT FOUND OR v_player.active_question IS NULL OR v_player.active_answered OR NOT v_player.active_transition_pending THEN
+  IF NOT FOUND OR v_player.status <> 'active' OR v_player.finished THEN
+    RETURN jsonb_build_object('ok', true, 'question', NULL);
+  END IF;
+
+  -- When Master starts the match from pending -> live, issue Question 1 on demand
+  IF v_match.status = 'live' AND v_player.active_question IS NULL THEN
+    v_q := public.eclipse_issue_question(v_player.id, v_match.config, 0);
+    RETURN jsonb_build_object('ok', true, 'question', v_q);
+  END IF;
+
+  IF v_player.active_question IS NULL OR v_player.active_answered OR NOT v_player.active_transition_pending THEN
     RETURN jsonb_build_object('ok', true, 'question', v_player.active_question);
   END IF;
 
@@ -756,7 +772,7 @@ $$;
 
 -- Coalesced pulse & top standings (rebuilt at most once per 2s across 500 concurrent players)
 CREATE OR REPLACE FUNCTION public.eclipse_get_pulse(
-  p_match_code text DEFAULT 'A7K3P9',
+  p_match_code text DEFAULT 'DANTE',
   p_session_id text DEFAULT NULL
 )
 RETURNS jsonb
@@ -775,7 +791,7 @@ DECLARE
   v_cache jsonb;
   v_rank int := NULL;
 BEGIN
-  SELECT * INTO v_match FROM public.matches WHERE code = upper(trim(COALESCE(p_match_code, 'A7K3P9'))) LIMIT 1;
+  SELECT * INTO v_match FROM public.matches WHERE code = upper(trim(COALESCE(p_match_code, 'DANTE'))) LIMIT 1;
   IF NOT FOUND THEN
     SELECT * INTO v_match FROM public.matches ORDER BY created_at DESC LIMIT 1;
   END IF;
@@ -886,7 +902,7 @@ $$;
 -- ─── 7. HOST / ADMIN RPCs ────────────────────────────────────────────────────
 
 CREATE OR REPLACE FUNCTION public.eclipse_get_standings(
-  p_match_code text DEFAULT 'A7K3P9'
+  p_match_code text DEFAULT 'DANTE'
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -899,7 +915,7 @@ DECLARE
   v_online int;
   v_total int;
 BEGIN
-  SELECT * INTO v_match FROM public.matches WHERE code = upper(trim(COALESCE(p_match_code, 'A7K3P9'))) LIMIT 1;
+  SELECT * INTO v_match FROM public.matches WHERE code = upper(trim(COALESCE(p_match_code, 'DANTE'))) LIMIT 1;
   IF NOT FOUND THEN SELECT * INTO v_match FROM public.matches ORDER BY created_at DESC LIMIT 1; END IF;
   IF NOT FOUND THEN RETURN jsonb_build_object('ok', false); END IF;
 
@@ -933,7 +949,7 @@ $$;
 
 CREATE OR REPLACE FUNCTION public.eclipse_host_auth(
   p_admin_code text,
-  p_match_code text DEFAULT 'A7K3P9'
+  p_match_code text DEFAULT 'DANTE'
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -947,7 +963,7 @@ DECLARE
   v_jun jsonb;
   v_sen jsonb;
 BEGIN
-  SELECT * INTO v_match FROM public.matches WHERE code = upper(trim(COALESCE(p_match_code, 'A7K3P9'))) LIMIT 1;
+  SELECT * INTO v_match FROM public.matches WHERE code = upper(trim(COALESCE(p_match_code, 'DANTE'))) LIMIT 1;
   IF NOT FOUND THEN SELECT * INTO v_match FROM public.matches ORDER BY created_at DESC LIMIT 1; END IF;
   IF NOT FOUND OR v_match.admin_code_hash <> v_hash THEN
     RETURN jsonb_build_object('ok', false, 'error', 'Invalid Host Passcode.');
@@ -989,7 +1005,7 @@ DECLARE
   v_target_grp text;
   v_q jsonb;
 BEGIN
-  SELECT * INTO v_match FROM public.matches WHERE code = upper(trim(COALESCE(p_match_code, 'A7K3P9'))) LIMIT 1;
+  SELECT * INTO v_match FROM public.matches WHERE code = upper(trim(COALESCE(p_match_code, 'DANTE'))) LIMIT 1;
   IF NOT FOUND THEN SELECT * INTO v_match FROM public.matches ORDER BY created_at DESC LIMIT 1; END IF;
   IF NOT FOUND OR v_match.admin_code_hash <> v_hash THEN
     RETURN jsonb_build_object('ok', false, 'error', 'Unauthorized');
@@ -1013,11 +1029,18 @@ BEGIN
           last_game_over = NULL,
           leaderboard_dirty = true
       WHERE id = v_match.id;
+      IF v_match.status = 'pending' THEN
+        UPDATE public.players
+        SET start_time = now(),
+            level_update_time = now(),
+            paused_remaining_ms = NULL
+        WHERE match_id = v_match.id AND status = 'active' AND level = 0 AND active_question IS NULL;
+      END IF;
       UPDATE public.players
       SET active_deadline_at = now() + ((COALESCE(paused_remaining_ms, 30000) || ' milliseconds')::interval),
           active_question = CASE WHEN active_question IS NOT NULL THEN jsonb_set(active_question, '{deadlineAt}', to_jsonb(floor(extract(epoch FROM (now() + ((COALESCE(paused_remaining_ms, 30000) || ' milliseconds')::interval))) * 1000))) ELSE NULL END,
           paused_remaining_ms = NULL
-      WHERE match_id = v_match.id AND status = 'active' AND NOT active_answered;
+      WHERE match_id = v_match.id AND status = 'active' AND NOT active_answered AND active_question IS NOT NULL;
     ELSIF p_payload->>'status' = 'ended' THEN
       SELECT public.eclipse_serialize_player(p) INTO v_w_jun FROM public.players p WHERE match_id = v_match.id AND status <> 'disqualified' ORDER BY level DESC, level_update_time ASC, best_level DESC, fails ASC LIMIT 1;
       v_w_sen := v_w_jun;
@@ -1054,7 +1077,7 @@ BEGIN
   ELSIF p_action = 'reset_all' THEN
     DELETE FROM public.players WHERE match_id = v_match.id;
     DELETE FROM public.feed_events WHERE match_id = v_match.id;
-    UPDATE public.matches SET status = 'live', global_ends_at = NULL, paused_remaining_ms = NULL, last_game_over = NULL, pulse_cache = NULL, leaderboard_dirty = true WHERE id = v_match.id;
+    UPDATE public.matches SET status = 'pending', global_ends_at = NULL, paused_remaining_ms = NULL, last_game_over = NULL, pulse_cache = NULL, leaderboard_dirty = true WHERE id = v_match.id;
 
   ELSIF p_action = 'regen_code' THEN
     v_new_code := upper(substr(encode(gen_random_bytes(4), 'hex'), 1, 6));

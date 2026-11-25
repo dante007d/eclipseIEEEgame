@@ -56,7 +56,7 @@ Deno.serve(async (req) => {
 
     const url = new URL(req.url);
     if (req.method === 'GET' && url.pathname.endsWith('/standings')) {
-      const code = (url.searchParams.get('code') ?? 'A7K3P9').toUpperCase();
+      const code = (url.searchParams.get('code') ?? 'DANTE').toUpperCase();
       return await cachedJsonRpc(`standings:${code}`, async () => {
         const { data, error } = await supabase.rpc('eclipse_get_standings', { p_match_code: code });
         if (error) throw error;
@@ -65,7 +65,7 @@ Deno.serve(async (req) => {
     }
 
     if (req.method === 'GET' && url.pathname.endsWith('/pulse')) {
-      const code = (url.searchParams.get('code') ?? 'A7K3P9').toUpperCase();
+      const code = (url.searchParams.get('code') ?? 'DANTE').toUpperCase();
       return await cachedJsonRpc(`pulse:${code}`, async () => {
         const { data, error } = await supabase.rpc('eclipse_get_pulse', {
           p_match_code: code,

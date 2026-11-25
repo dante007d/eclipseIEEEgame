@@ -387,15 +387,15 @@ export function attachGameController(io, matchContext) {
       } else if (store.status === 'ended' && store.lastGameOver) {
         socket.emit(SOCKET_EVENTS.MATCH_ENDED, store.lastGameOver);
       } else if (player.status === 'active' && !player.finished) {
-        // Restore active unanswered question if still valid, otherwise issue fresh question
-        if (player.activeQuestion && !player.activeQuestion.answered) {
+        // Restore active unanswered question when live/paused; while pending wait for Master's command
+        if (player.activeQuestion && !player.activeQuestion.answered && store.status !== 'pending') {
           const remaining = player.activeQuestion.clientQuestion.deadlineAt - Date.now();
           if (remaining > 500 || store.status === 'paused') {
             socket.emit(SOCKET_EVENTS.QUESTION_SHOW, player.activeQuestion.clientQuestion);
           } else if (store.status === 'live') {
             handleAnswerEvaluation(player, null, true);
           }
-        } else {
+        } else if (store.status === 'live') {
           issueQuestion(player, 0);
         }
       }
@@ -580,6 +580,10 @@ export function attachGameController(io, matchContext) {
         }
         for (const p of store.players.values()) {
           if (p.status === 'active' && !p.finished) {
+            if (prevStatus === 'pending' && p.level === 0 && !p.activeQuestion) {
+              p.startTime = now;
+              p.levelUpdateTime = now;
+            }
             if (p.activeQuestion && !p.activeQuestion.answered) {
               const rem = p.pausedRemainingMs ?? (p.phase === 'MAIN' ? store.config.mainTimerSec : store.config.roomTimerSec) * 1000;
               p.activeQuestion.clientQuestion.deadlineAt = now + rem;
@@ -636,7 +640,7 @@ export function attachGameController(io, matchContext) {
       store.feed = [];
       store.lastGameOver = null;
       store.globalTimer = null;
-      store.status = 'live';
+      store.status = 'pending';
       io.emit(SOCKET_EVENTS.TIMER_SYNC, { remainingMs: null });
       io.emit(SOCKET_EVENTS.MATCH_STATUS, { status: store.status, matchCode: store.matchCode });
       markDirty();

@@ -42,8 +42,8 @@ export function useEclipseBackend() {
   const demoRef = useRef<DemoSessionState | null>(null);
 
   const [connected, setConnected] = useState(() => (mode === 'supabase' ? true : socket.connected));
-  const [matchStatus, setMatchStatus] = useState<MatchStatus>('live');
-  const [matchCode, setMatchCode] = useState('A7K3P9');
+  const [matchStatus, setMatchStatus] = useState<MatchStatus>('pending');
+  const [matchCode, setMatchCode] = useState('DANTE');
   const [config, setConfig] = useState<MatchConfig>(DEFAULT_CONFIG);
 
   const [player, setPlayer] = useState<PlayerState | null>(null);
@@ -71,6 +71,12 @@ export function useEclipseBackend() {
   const [joinError, setJoinError] = useState<string | null>(null);
 
   const lastSubmittedOptionRef = useRef<string | undefined>(undefined);
+  const matchStatusRef = useRef<MatchStatus>(matchStatus);
+  matchStatusRef.current = matchStatus;
+  const playerRef = useRef<PlayerState | null>(player);
+  playerRef.current = player;
+  const questionRef = useRef<Question | null>(question);
+  questionRef.current = question;
 
   const updateRankWithFlash = useCallback((nextRank: number | null) => {
     if (nextRank == null) return;
@@ -150,6 +156,7 @@ export function useEclipseBackend() {
       lastGameOver?: GameOverData | null;
     }) => {
       if (!data?.ok || cancelled) return;
+      const wasPending = matchStatusRef.current === 'pending';
       setConnected(true);
       if (data.matchCode) setMatchCode(data.matchCode);
       if (data.status) setMatchStatus(data.status);
@@ -158,6 +165,20 @@ export function useEclipseBackend() {
         setGlobalDeadline(Date.now() + data.globalRemainingMs);
       } else {
         setGlobalDeadline(null);
+      }
+      // Automatically pull Question 1 the moment Master switches pending -> live
+      if (wasPending && data.status === 'live' && playerRef.current && !questionRef.current) {
+        const savedMeta = loadPlayerMeta();
+        supabase
+          .rpc('eclipse_ready_next', {
+            p_match_code: data.matchCode || savedMeta?.matchCode || 'DANTE',
+            p_session_id: getSessionId(),
+          })
+          .then(({ data: qRes }) => {
+            if (!cancelled && qRes?.ok && qRes.question) {
+              setQuestion(qRes.question);
+            }
+          });
       }
       if (data.rank != null) updateRankWithFlash(data.rank);
       if (data.myStatus === 'disqualified') {
@@ -189,7 +210,7 @@ export function useEclipseBackend() {
       try {
         const saved = loadPlayerMeta();
         const { data, error } = await supabase.rpc('eclipse_get_pulse', {
-          p_match_code: saved?.matchCode || 'A7K3P9',
+          p_match_code: saved?.matchCode || 'DANTE',
           p_session_id: saved ? getSessionId() : null,
         });
         if (!error && data) applyPulseData(data);
@@ -232,7 +253,10 @@ export function useEclipseBackend() {
 
     let timerId: number;
     const scheduleNext = () => {
-      const jitterMs = 11000 + Math.floor(Math.random() * 4000);
+      const isWaitingStart = Boolean(playerRef.current && matchStatusRef.current === 'pending');
+      const jitterMs = isWaitingStart
+        ? 2400 + Math.floor(Math.random() * 1200)
+        : 11000 + Math.floor(Math.random() * 4000);
       timerId = window.setTimeout(async () => {
         await pollPulse();
         if (!cancelled) scheduleNext();

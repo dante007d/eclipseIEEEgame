@@ -48,7 +48,6 @@ function GameRouter() {
             leaderboard={backend.leaderboard}
             errorMsg={backend.joinError}
             loading={backend.joinLoading}
-            defaultCode={backend.matchCode}
           />
         }
       />
@@ -61,7 +60,6 @@ function GameRouter() {
             onBack={() => navigate('/')}
             errorMsg={backend.joinError}
             loading={backend.joinLoading}
-            defaultCode={backend.matchCode}
           />
         }
       />

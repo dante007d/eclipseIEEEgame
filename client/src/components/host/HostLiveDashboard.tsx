@@ -44,6 +44,7 @@ export default function HostLiveDashboard({
 }: HostLiveDashboardProps) {
   const [search, setSearch] = useState('');
   const [customMinutes, setCustomMinutes] = useState(60);
+  const [revealCode, setRevealCode] = useState(false);
 
   const needle = search.trim().toUpperCase();
   const filtered = players.filter(p => !needle || p.name.toUpperCase().includes(needle));
@@ -90,44 +91,59 @@ export default function HostLiveDashboard({
             <span
               className="px-3 py-1 text-xs font-mono font-bold border flex items-center gap-1.5"
               style={{
-                background: status === 'live' ? '#052e16' : status === 'paused' ? '#1c1708' : '#1c0505',
-                borderColor: status === 'live' ? '#16a34a' : status === 'paused' ? '#ca8a04' : '#dc2626',
-                color: status === 'live' ? '#4ade80' : status === 'paused' ? '#fbbf24' : '#f87171',
+                background: status === 'live' ? '#052e16' : status === 'paused' || status === 'pending' ? '#1c1708' : '#1c0505',
+                borderColor: status === 'live' ? '#16a34a' : status === 'paused' || status === 'pending' ? '#ca8a04' : '#dc2626',
+                color: status === 'live' ? '#4ade80' : status === 'paused' || status === 'pending' ? '#fbbf24' : '#f87171',
               }}
             >
               <span
-                className="w-2 h-2 rounded-full"
+                className="w-2 h-2"
                 style={{
-                  background: status === 'live' ? '#4ade80' : status === 'paused' ? '#fbbf24' : '#f87171',
-                  animation: status === 'live' ? 'pulse 1.5s infinite' : 'none',
+                  background: status === 'live' ? '#4ade80' : status === 'paused' || status === 'pending' ? '#fbbf24' : '#f87171',
+                  animation: status === 'live' || status === 'pending' ? 'pulse 1.5s infinite' : 'none',
                 }}
               />
-              {status.toUpperCase()}
+              {status === 'pending' ? 'WAITING START' : status.toUpperCase()}
             </span>
           </div>
         </div>
 
-        {/* Match Code + Action Controls */}
+        {/* Match Code (Hidden by default) + Start / Action Controls */}
         <div className="flex items-center justify-between gap-3 mt-3 flex-wrap">
           <div className="flex items-center gap-2 flex-wrap">
-            <div className="flex items-center gap-2 bg-black/50 border border-gray-800 rounded-xl px-3 py-1.5">
-              <span className="font-cinzel text-[10px] text-gray-500 tracking-wider">CODE</span>
-              <span className="font-mono text-base font-black text-white tracking-widest">{matchCode}</span>
-            </div>
+            <button
+              type="button"
+              onClick={() => setRevealCode(v => !v)}
+              title="Toggle room code visibility"
+              className="flex items-center gap-2 bg-[#030204] border border-[#c69c5d]/45 px-3 py-1.5 hover:border-[#c69c5d] transition-colors"
+            >
+              <span className="font-mono text-[10px] text-gray-400 tracking-wider">CODE</span>
+              <span className="font-mono text-sm font-bold text-[#e6c48a] tracking-widest">
+                {revealCode ? matchCode : '•••••'}
+              </span>
+              <span className="font-mono text-[10px] text-gray-500">[{revealCode ? 'HIDE' : 'SHOW'}]</span>
+            </button>
 
-            {status === 'pending' || status === 'paused' || status === 'ended' ? (
+            {status === 'pending' ? (
               <button
                 onClick={() => onSetStatus('live')}
-                className="py-2 px-3.5 rounded-xl font-cinzel text-xs font-bold tracking-wider text-white bg-emerald-700 hover:bg-emerald-600 transition-colors"
+                className="py-2.5 px-5 border-2 border-emerald-400 font-display text-xl tracking-[0.2em] text-white uppercase bg-emerald-700 hover:bg-emerald-600 transition-colors tabular-nums"
               >
-                ▶ {status === 'paused' ? 'Resume' : 'Start / Live'}
+                ▶ START GAME ({players.length} READY)
+              </button>
+            ) : status === 'paused' || status === 'ended' ? (
+              <button
+                onClick={() => onSetStatus('live')}
+                className="py-2 px-4 border border-emerald-400 font-mono text-xs font-bold tracking-wider uppercase text-white bg-emerald-700 hover:bg-emerald-600 transition-colors"
+              >
+                ▶ {status === 'paused' ? 'RESUME GAME' : 'START NEW ROUND'}
               </button>
             ) : (
               <button
                 onClick={() => onSetStatus('paused')}
-                className="py-2 px-3.5 rounded-xl font-cinzel text-xs font-bold tracking-wider text-gray-200 bg-[#1a1420] border border-gray-700 hover:border-gray-500 transition-colors"
+                className="py-2 px-3.5 border border-gray-700 font-mono text-xs font-bold tracking-wider uppercase text-gray-200 bg-[#140d14] hover:border-gray-400 transition-colors"
               >
-                ⏸ Pause
+                ⏸ PAUSE
               </button>
             )}
 
@@ -138,9 +154,9 @@ export default function HostLiveDashboard({
                     onSetStatus('ended');
                   }
                 }}
-                className="py-2 px-3.5 rounded-xl font-cinzel text-xs font-bold tracking-wider text-red-300 bg-red-950/60 border border-red-700/80 hover:bg-red-900/60 transition-colors"
+                className="py-2 px-3.5 border border-[#dc2626] font-mono text-xs font-bold tracking-wider uppercase text-red-200 bg-[#29050b] hover:bg-red-800 transition-colors"
               >
-                ⏹ End Match
+                ⏹ END MATCH
               </button>
             )}
           </div>

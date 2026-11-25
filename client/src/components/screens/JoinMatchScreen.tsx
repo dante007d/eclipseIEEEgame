@@ -1,4 +1,4 @@
-import { useState, useRef, type FormEvent, type ClipboardEvent, type KeyboardEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import { soundFX } from '../../lib/sound';
 import { EclipseStage, GoldDivider } from '../GothicPrimitives';
 
@@ -8,7 +8,6 @@ interface JoinMatchScreenProps {
   onBack: () => void;
   errorMsg?: string | null;
   loading?: boolean;
-  defaultCode?: string;
 }
 
 export default function JoinMatchScreen({
@@ -17,48 +16,18 @@ export default function JoinMatchScreen({
   onBack,
   errorMsg,
   loading = false,
-  defaultCode = 'A7K3P9',
 }: JoinMatchScreenProps) {
-  const initialChars = defaultCode.toUpperCase().padEnd(6, '').slice(0, 6).split('');
-  const [code, setCode] = useState<string[]>(initialChars);
+  const [code, setCode] = useState<string>('');
   const [name, setName] = useState<string>(() => sessionStorage.getItem('eclipse_last_name') || '');
   const [localError, setLocalError] = useState<string | null>(null);
-  const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
-
-  const handleDigitChange = (index: number, val: string) => {
-    const clean = val.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(-1);
-    const updated = [...code];
-    updated[index] = clean;
-    setCode(updated);
-    setLocalError(null);
-    if (clean && index < 5) {
-      inputRefs.current[index + 1]?.focus();
-    }
-  };
-
-  const handleKeyDown = (index: number, e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Backspace' && !code[index] && index > 0) {
-      inputRefs.current[index - 1]?.focus();
-    }
-  };
-
-  const handlePaste = (e: ClipboardEvent<HTMLInputElement>) => {
-    const pasted = e.clipboardData.getData('text').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 6);
-    if (!pasted) return;
-    e.preventDefault();
-    const next = Array.from({ length: 6 }, (_, i) => pasted[i] || '');
-    setCode(next);
-    setLocalError(null);
-    inputRefs.current[Math.min(5, pasted.length)]?.focus();
-  };
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     soundFX.playButtonClick();
-    const joinedCode = code.join('').trim().toUpperCase();
+    const joinedCode = code.trim().toUpperCase();
     const trimmedName = name.trim();
     if (!joinedCode) {
-      setLocalError('ENTER MATCH ACCESS CODE.');
+      setLocalError('ACCESS CODE REQUIRED.');
       return;
     }
     if (trimmedName) {
@@ -102,25 +71,27 @@ export default function JoinMatchScreen({
           </h2>
           <GoldDivider className="w-44 my-3" />
 
-          <p className="font-mono text-xs text-[#cbbba0] mb-4">
-            ENTER 6-CHARACTER ARENA CODE
-          </p>
-
-          <div className="grid grid-cols-6 gap-2 w-full max-w-[340px] mb-6">
-            {code.map((char, idx) => (
-              <input
-                key={idx}
-                ref={el => { inputRefs.current[idx] = el; }}
-                type="text"
-                maxLength={1}
-                value={char}
-                onPaste={handlePaste}
-                onKeyDown={(e) => handleKeyDown(idx, e)}
-                onChange={(e) => handleDigitChange(idx, e.target.value)}
-                aria-label={`Match code character ${idx + 1}`}
-                className="h-12 text-center font-mono font-bold text-lg text-[#f8efe4] bg-[#030204] border border-[#c69c5d]/70 focus:border-[#ff0033] outline-none uppercase transition-colors"
-              />
-            ))}
+          <div className="w-full text-left mb-4">
+            <label
+              htmlFor="joinCodeInput"
+              className="block font-mono text-[11px] tracking-[0.2em] text-[#e6c48a] uppercase mb-2 text-center"
+            >
+              &gt; ENTER ACCESS CODE
+            </label>
+            <input
+              id="joinCodeInput"
+              type="text"
+              maxLength={20}
+              autoComplete="off"
+              value={code}
+              onChange={(e) => {
+                setCode(e.target.value);
+                setLocalError(null);
+              }}
+              className="w-full py-3 px-4 text-center font-mono font-bold text-lg text-[#f8efe4] bg-[#030204] border border-[#c69c5d]/70 focus:border-[#ff0033] tracking-[0.2em] uppercase outline-none transition-colors"
+              placeholder="ACCESS CODE"
+              autoFocus
+            />
           </div>
 
           <div className="w-full text-left mb-5">

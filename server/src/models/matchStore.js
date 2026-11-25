@@ -76,7 +76,7 @@ export function createMatchStore() {
 
   const store = {
     matchCode: ENV.DEFAULT_MATCH_CODE,
-    status: 'live', // 'pending' | 'live' | 'paused' | 'ended'
+    status: 'pending', // 'pending' | 'live' | 'paused' | 'ended'
     config: { ...DEFAULT_CONFIG },
     banks: {
       all: unifiedBank,

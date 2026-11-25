@@ -47,5 +47,5 @@ process.on('unhandledRejection', (err) => console.error('[!] Unhandled rejection
 
 server.listen(ENV.PORT, () => {
   console.log(`[ECLIPSE SERVER] listening on http://localhost:${ENV.PORT}`);
-  console.log(`[ECLIPSE SERVER] Match Code: ${matchContext.store.matchCode} (or '${ENV.PLAYER_CODE}')`);
+  console.log('[ECLIPSE SERVER] Arena status: waiting for Master start command');
 });

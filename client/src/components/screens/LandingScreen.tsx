@@ -15,7 +15,6 @@ interface LandingScreenProps {
   leaderboard: LeaderboardSnapshot;
   errorMsg?: string | null;
   loading?: boolean;
-  defaultCode?: string;
 }
 
 export default function LandingScreen({
@@ -29,7 +28,6 @@ export default function LandingScreen({
   leaderboard,
   errorMsg,
   loading = false,
-  defaultCode = 'A7K3P9',
 }: LandingScreenProps) {
   const [code, setCode] = useState<string>('');
   const [name, setName] = useState<string>(() => sessionStorage.getItem('eclipse_last_name') || '');
@@ -138,7 +136,7 @@ export default function LandingScreen({
                     setCode(e.target.value);
                     setLocalError(null);
                   }}
-                  placeholder={defaultCode}
+                  placeholder="ENTER CODE"
                   className="w-full bg-transparent font-mono text-sm font-bold text-[#f8efe4] tracking-widest uppercase outline-none"
                 />
               </div>
@@ -210,7 +208,7 @@ export default function LandingScreen({
           </div>
 
           <div className="flex items-center justify-between pt-2 border-t border-[#c69c5d]/20 text-[11px] font-mono text-[#a3947e]">
-            <span>ARENA CODE: <strong className="text-[#e6c48a]">{defaultCode}</strong></span>
+            <span>GATE: <strong className="text-[#e6c48a]">SEALED</strong></span>
             <span>ANTI-CHEAT: <strong className="text-[#ff0033]">ARMED</strong></span>
           </div>
         </form>

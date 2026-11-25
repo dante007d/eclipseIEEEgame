@@ -28,7 +28,16 @@ async function run() {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
-  await new Promise(r => setTimeout(r, 1200));
+  // Wait until /health actually responds (avoids cold-start race on slower machines)
+  for (let attempt = 0; attempt < 50; attempt++) {
+    try {
+      const h = await fetch(`${URL}/health`);
+      if (h.ok) break;
+    } catch {
+      // server still starting
+    }
+    await new Promise(r => setTimeout(r, 200));
+  }
 
   const sockets = [];
   const joinLatencies = [];
@@ -37,6 +46,30 @@ async function run() {
   let errors = 0;
 
   try {
+    // Master admin starts the match from 'pending' -> 'live'
+    const adminSock = io(URL, { transports: ['websocket'], reconnection: false });
+    sockets.push(adminSock);
+    await new Promise((resolve, reject) => {
+      adminSock.once('connect', resolve);
+      adminSock.once('connect_error', reject);
+    });
+    await new Promise((resolve, reject) => {
+      adminSock.emit('admin:auth', 'stalin', (res) => {
+        if (!res?.ok) {
+          reject(new Error('Admin auth failed in load test'));
+          return;
+        }
+        const onLive = (msg) => {
+          if (msg?.status === 'live') {
+            adminSock.off('match:status', onLive);
+            resolve();
+          }
+        };
+        adminSock.on('match:status', onLive);
+        adminSock.emit('host:set_status', 'live');
+      });
+    });
+
     // Connect & join 500 players in controlled waves (50 per 60ms = ~0.6s ramp-up)
     const tasks = [];
     for (let i = 0; i < TOTAL_PLAYERS; i++) {
@@ -62,7 +95,7 @@ async function run() {
           });
           sock.emit('match:join', {
             sessionId: `loadtest_player_${String(idx).padStart(4, '0')}`,
-            matchCode: 'A7K3P9',
+            matchCode: 'DANTE',
             name: `Bot_${idx}`,
             year: (idx % 4) + 1,
           }, (ack) => {
