@@ -4,6 +4,7 @@
 -- ============================================================================
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
+SET search_path TO public, extensions;
 
 -- ─── 1. TABLES ───────────────────────────────────────────────────────────────
 
@@ -201,7 +202,7 @@ CREATE OR REPLACE FUNCTION public.eclipse_issue_question(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
   v_p public.players;
@@ -321,7 +322,7 @@ CREATE OR REPLACE FUNCTION public.eclipse_join_match(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
   v_match public.matches;
@@ -435,7 +436,7 @@ CREATE OR REPLACE FUNCTION public.eclipse_ready_next(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
   v_match public.matches;
@@ -483,7 +484,7 @@ CREATE OR REPLACE FUNCTION public.eclipse_submit_answer(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
   v_match public.matches;
@@ -692,7 +693,7 @@ CREATE OR REPLACE FUNCTION public.eclipse_report_cheat(
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
   v_match_id uuid;
@@ -730,7 +731,7 @@ CREATE OR REPLACE FUNCTION public.eclipse_sever_run(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
   v_match_id uuid;
@@ -761,7 +762,7 @@ CREATE OR REPLACE FUNCTION public.eclipse_get_pulse(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
   v_match public.matches;
@@ -811,7 +812,13 @@ BEGIN
     LIMIT 1;
 
     -- Compact top-25 + Room 4 Danger Zone snapshot shared across all players
-    SELECT COALESCE(jsonb_agg(public.eclipse_serialize_player(sub)), '[]'::jsonb) INTO v_top
+    SELECT COALESCE(
+      jsonb_agg(
+        public.eclipse_serialize_player(sub)
+        ORDER BY (sub.status = 'disqualified') ASC, sub.level DESC, sub.level_update_time ASC, sub.best_level DESC, sub.fails ASC
+      ),
+      '[]'::jsonb
+    ) INTO v_top
     FROM (
       (SELECT * FROM public.players
        WHERE match_id = v_match.id
@@ -884,7 +891,7 @@ CREATE OR REPLACE FUNCTION public.eclipse_get_standings(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
   v_match public.matches;
@@ -931,7 +938,7 @@ CREATE OR REPLACE FUNCTION public.eclipse_host_auth(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
   v_match public.matches;
@@ -970,7 +977,7 @@ CREATE OR REPLACE FUNCTION public.eclipse_host_action(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
   v_match public.matches;
@@ -992,7 +999,8 @@ BEGIN
     IF p_payload->>'status' = 'paused' AND v_match.status = 'live' THEN
       UPDATE public.matches
       SET status = 'paused',
-          paused_remaining_ms = CASE WHEN global_ends_at IS NOT NULL THEN GREATEST(0, floor(extract(epoch FROM (global_ends_at - now())) * 1000)) ELSE NULL END
+          paused_remaining_ms = CASE WHEN global_ends_at IS NOT NULL THEN GREATEST(0, floor(extract(epoch FROM (global_ends_at - now())) * 1000)) ELSE NULL END,
+          leaderboard_dirty = true
       WHERE id = v_match.id;
       UPDATE public.players
       SET paused_remaining_ms = GREATEST(1000, floor(extract(epoch FROM (active_deadline_at - now())) * 1000))
@@ -1002,7 +1010,8 @@ BEGIN
       SET status = 'live',
           global_ends_at = CASE WHEN paused_remaining_ms IS NOT NULL THEN now() + ((paused_remaining_ms || ' milliseconds')::interval) ELSE global_ends_at END,
           paused_remaining_ms = NULL,
-          last_game_over = NULL
+          last_game_over = NULL,
+          leaderboard_dirty = true
       WHERE id = v_match.id;
       UPDATE public.players
       SET active_deadline_at = now() + ((COALESCE(paused_remaining_ms, 30000) || ' milliseconds')::interval),
@@ -1010,12 +1019,13 @@ BEGIN
           paused_remaining_ms = NULL
       WHERE match_id = v_match.id AND status = 'active' AND NOT active_answered;
     ELSIF p_payload->>'status' = 'ended' THEN
-      SELECT public.eclipse_serialize_player(p) INTO v_w_jun FROM public.players p WHERE match_id = v_match.id AND grp = 'junior' AND status <> 'disqualified' ORDER BY level DESC, level_update_time ASC LIMIT 1;
-      SELECT public.eclipse_serialize_player(p) INTO v_w_sen FROM public.players p WHERE match_id = v_match.id AND grp = 'senior' AND status <> 'disqualified' ORDER BY level DESC, level_update_time ASC LIMIT 1;
+      SELECT public.eclipse_serialize_player(p) INTO v_w_jun FROM public.players p WHERE match_id = v_match.id AND status <> 'disqualified' ORDER BY level DESC, level_update_time ASC, best_level DESC, fails ASC LIMIT 1;
+      v_w_sen := v_w_jun;
       UPDATE public.matches
       SET status = 'ended',
           global_ends_at = NULL,
           paused_remaining_ms = NULL,
+          leaderboard_dirty = true,
           last_game_over = jsonb_build_object(
             'at', floor(extract(epoch FROM now()) * 1000),
             'winners', jsonb_build_object('junior', v_w_jun, 'senior', v_w_sen),
@@ -1025,7 +1035,7 @@ BEGIN
     END IF;
 
   ELSIF p_action = 'update_config' THEN
-    UPDATE public.matches SET config = v_match.config || p_payload WHERE id = v_match.id;
+    UPDATE public.matches SET config = v_match.config || p_payload, leaderboard_dirty = true WHERE id = v_match.id;
 
   ELSIF p_action = 'start_timer' THEN
     v_sec := LEAST(86400, GREATEST(10, COALESCE((p_payload->>'seconds')::int, 3600)));
@@ -1033,7 +1043,8 @@ BEGIN
     SET global_ends_at = now() + make_interval(secs => v_sec),
         paused_remaining_ms = NULL,
         status = 'live',
-        last_game_over = NULL
+        last_game_over = NULL,
+        leaderboard_dirty = true
     WHERE id = v_match.id;
 
   ELSIF p_action = 'disqualify' THEN
@@ -1047,7 +1058,7 @@ BEGIN
 
   ELSIF p_action = 'regen_code' THEN
     v_new_code := upper(substr(encode(gen_random_bytes(4), 'hex'), 1, 6));
-    UPDATE public.matches SET code = v_new_code WHERE id = v_match.id;
+    UPDATE public.matches SET code = v_new_code, leaderboard_dirty = true WHERE id = v_match.id;
 
   ELSIF p_action = 'upload_questions' THEN
     v_target_grp := COALESCE(p_payload->>'targetGroup', 'all');
