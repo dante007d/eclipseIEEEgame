@@ -1,5 +1,5 @@
 import { DEMO_QUESTIONS, type DemoQuestion } from './demoQuestions';
-import { SAVAGES } from '../../../shared/flavor.js';
+import { SAVAGES, pickUnique, type UniquePoolTracker } from '../../../shared/flavor.js';
 import type {
   AnswerResult,
   MatchConfig,
@@ -25,6 +25,7 @@ export interface DemoSessionState {
   correctOptionId: string;
   bots: PlayerState[];
   seenIds: string[];
+  roastTracker?: UniquePoolTracker;
   config: MatchConfig;
 }
 
@@ -126,6 +127,7 @@ export function createInitialDemoState(name = 'DemoAscendant', year = 1): DemoSe
     correctOptionId: issued.correctOptionId,
     bots: INITIAL_BOTS.map(b => ({ ...b })),
     seenIds: [issued.pickedId],
+    roastTracker: { seen: new Set(), last: null },
     config,
   };
 }
@@ -197,6 +199,12 @@ export function evaluateDemoAnswer(
       ? createDemoQuestion(p.level, p.phase, p.room, state.seenIds, state.question.id, state.config)
       : null;
 
+  const nextRoastTracker: UniquePoolTracker = {
+    seen: new Set(state.roastTracker?.seen ?? []),
+    last: state.roastTracker?.last ?? null,
+  };
+  const roast = isCorrect ? undefined : pickUnique(SAVAGES, nextRoastTracker);
+
   return {
     nextState: {
       ...state,
@@ -204,13 +212,14 @@ export function evaluateDemoAnswer(
       question: nextIssued ? nextIssued.question : state.question,
       correctOptionId: nextIssued ? nextIssued.correctOptionId : state.correctOptionId,
       seenIds: nextIssued ? [...state.seenIds.slice(-15), nextIssued.pickedId] : state.seenIds,
+      roastTracker: nextRoastTracker,
     },
     result: {
       correct: isCorrect,
       isTimeout,
       transition,
       pointsGained,
-      roast: isCorrect ? undefined : SAVAGES[Math.floor(Math.random() * SAVAGES.length)],
+      roast,
       previousRoom: prevRoom,
       newRoom: p.room,
       newLevel: p.level,

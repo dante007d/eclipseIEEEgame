@@ -12,6 +12,9 @@ import type {
 } from '../../types/game';
 import {
   SAVAGES,
+  pickUnique,
+  claimUnique,
+  type UniquePoolTracker,
   CHEAT_TITLES,
   CHEAT_ROASTS,
   TIMER_INSULTS,
@@ -70,7 +73,34 @@ interface PlayScreenProps {
 const AWAY_MS = 1500;
 const INSULT_MS = 5000;
 const AI_EXT_REGEX = /chatgpt|openai|claude|perplexity|sider|monica|harpa|copilot|blackbox|brainly|chegg|quizlet|merlin|maxai|liner/i;
-const pick = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
+const ROAST_STORAGE_KEY = 'eclipse_seen_roasts_v1';
+
+function loadRoastTracker(): UniquePoolTracker {
+  try {
+    const raw = sessionStorage.getItem(ROAST_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as { seen?: unknown; last?: unknown };
+      return {
+        seen: new Set(Array.isArray(parsed.seen) ? parsed.seen.filter((s): s is string => typeof s === 'string') : []),
+        last: typeof parsed.last === 'string' ? parsed.last : null,
+      };
+    }
+  } catch {
+    // sessionStorage unavailable
+  }
+  return { seen: new Set<string>(), last: null };
+}
+
+function saveRoastTracker(tracker: UniquePoolTracker): void {
+  try {
+    sessionStorage.setItem(
+      ROAST_STORAGE_KEY,
+      JSON.stringify({ seen: Array.from(tracker.seen), last: tracker.last })
+    );
+  } catch {
+    // sessionStorage unavailable
+  }
+}
 
 function buzz(pattern: number | number[]) {
   try {
@@ -129,6 +159,11 @@ export default function PlayScreen({
   const timedOutTokenRef = useRef<string | null>(null);
   const bellPlayedTokenRef = useRef<string | null>(null);
   const lastTickSecRef = useRef<number>(-1);
+  const failRoastTrackerRef = useRef<UniquePoolTracker | null>(null);
+  if (!failRoastTrackerRef.current) failRoastTrackerRef.current = loadRoastTracker();
+  const timerInsultTrackerRef = useRef<UniquePoolTracker>({ seen: new Set(), last: null });
+  const whisperTrackerRef = useRef<UniquePoolTracker>({ seen: new Set(), last: null });
+  const cheatTrackersRef = useRef<Record<string, UniquePoolTracker>>({});
 
   const [selected, setSelected] = useState<string | null>(null);
   const [answerFeedback, setAnswerFeedback] = useState<{
@@ -199,7 +234,7 @@ export default function PlayScreen({
       }
       if (left <= 20 && left > 0 && insultedTokenRef.current !== question.questionToken) {
         insultedTokenRef.current = question.questionToken;
-        setInsultToast(pick(TIMER_INSULTS));
+        setInsultToast(pickUnique(TIMER_INSULTS, timerInsultTrackerRef.current));
         setTimeout(() => setInsultToast(null), INSULT_MS);
       }
       if (left === 0 && !selected && timedOutTokenRef.current !== question.questionToken) {
@@ -222,7 +257,7 @@ export default function PlayScreen({
         if (rank && rank > 1) lines.push(`${rank - 1} OF THEM ARE HIGHER THAN YOU.`);
         setWhisper({
           id: Date.now(),
-          text: pick(lines),
+          text: pickUnique(lines, whisperTrackerRef.current),
           side: Math.random() < 0.5 ? 'l' : 'r',
           y: 15 + Math.random() * 62,
         });
@@ -243,7 +278,6 @@ export default function PlayScreen({
 
     const { correct, isTimeout, transition, roast, pointsGained, newRoom, newLevel, selectedOptionId } = lastResult;
     const chosenId = selectedOptionId || selectedRef.current || '';
-    const savage = roast || pick(SAVAGES);
 
     if (correct) {
       soundFX.playCorrect();
@@ -268,13 +302,18 @@ export default function PlayScreen({
       return () => clearTimeout(t);
     }
 
-    // Wrong answer or timeout -> exact 5-second ragebait failure display only
+    // Wrong answer or timeout -> exact 5-second non-repeating brutal ragebait failure display
+    const failTracker = failRoastTrackerRef.current ?? loadRoastTracker();
+    failRoastTrackerRef.current = failTracker;
+    const savage = claimUnique(roast, SAVAGES, failTracker);
+    saveRoastTracker(failTracker);
+
     soundFX.playIncorrect();
     buzz([120, 60, 220]);
     const timedOut = Boolean(isTimeout || chosenId === '__TIMEOUT__');
     const consequence =
       transition === 'RESET'
-        ? 'ROOM 4 COLLAPSE // FULL RESET TO LEVEL 0'
+        ? 'ROOM 4 COLLAPSE // WIPED BACK TO LEVEL 0'
         : `DROPPING TO RECOVERY ROOM ${newRoom ?? 1} / ${roomsPerLevelRef.current}`;
 
     setAnswerFeedback({ optionId: chosenId, correct: false });
@@ -351,9 +390,13 @@ export default function PlayScreen({
       buzz([200, 80, 200, 80, 400]);
       onCheat(kind);
       if (cheatTimerRef.current) clearTimeout(cheatTimerRef.current);
+      const pool = CHEAT_ROASTS[kind] || CHEAT_ROASTS.left;
+      if (!cheatTrackersRef.current[kind]) {
+        cheatTrackersRef.current[kind] = { seen: new Set(), last: null };
+      }
       setCheatOverlay({
         title: CHEAT_TITLES[kind] || CHEAT_TITLES.left,
-        roast: pick(CHEAT_ROASTS[kind] || CHEAT_ROASTS.left),
+        roast: pickUnique(pool, cheatTrackersRef.current[kind]),
         strike,
       });
       cheatTimerRef.current = window.setTimeout(() => setCheatOverlay(null), INSULT_MS);
@@ -884,7 +927,7 @@ export default function PlayScreen({
         <div className="fixed inset-0 z-[85] flex items-center justify-center p-6 bg-black/92">
           <div className="relative z-10 w-full max-w-xl gothic-panel-crimson p-7 sm:p-9 text-center animate-wrong-shake">
             <div className="font-mono text-xs tracking-[0.28em] text-[#ff6600] uppercase mb-3">
-              {failOverlay.isTimeout ? 'SYSTEM TIMEOUT // NO TRANSMISSION' : 'SYSTEM FAILURE // WRONG ANSWER'}
+              {failOverlay.isTimeout ? 'CLOCK EXPIRED // ZERO SIGNAL SUBMITTED' : 'WRONG INPUT // EXECUTION REJECTED'}
             </div>
             <div className="font-display text-3xl sm:text-5xl text-[#ff0033] tracking-wider uppercase leading-tight mb-5 drop-shadow-[0_0_24px_rgba(255,0,51,0.85)]">
               &ldquo;{failOverlay.roast}&rdquo;

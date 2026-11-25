@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { SOCKET_EVENTS } from '../../../shared/constants.js';
-import { SAVAGES } from '../../../shared/flavor.js';
+import { SAVAGES, pickUnique } from '../../../shared/flavor.js';
 import { ENV } from '../config/env.js';
 import { selectQuestion, evaluateCascadeAnswer } from '../cascadeEngine.js';
 import {
@@ -13,7 +13,6 @@ import {
 } from '../models/matchStore.js';
 import { parseAndValidateQuestions } from '../models/questionValidator.js';
 
-const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 const codeDigest = (code) =>
   crypto.createHash('sha256').update(String(code ?? '').trim().toLowerCase()).digest();
 const ADMIN_DIGEST = codeDigest(ENV.ADMIN_CODE);
@@ -35,6 +34,16 @@ export function attachGameController(io, matchContext) {
     pruneIdle,
     boardPayload,
   } = matchContext;
+
+  const playerRoastTrackers = new Map();
+  const getRoastTracker = (playerId) => {
+    let tracker = playerRoastTrackers.get(playerId);
+    if (!tracker) {
+      tracker = { seen: new Set(), last: null };
+      playerRoastTrackers.set(playerId, tracker);
+    }
+    return tracker;
+  };
 
   const clearPlayerTimer = (player) => {
     if (player.questionTimer) {
@@ -152,7 +161,7 @@ export function attachGameController(io, matchContext) {
       pushFeed({ t: 'reset', n: player.name, lv: prevLevel, g: grp });
     }
 
-    const roast = !isCorrect ? pick(SAVAGES) : undefined;
+    const roast = !isCorrect ? pickUnique(SAVAGES, getRoastTracker(player.id)) : undefined;
     const resultPayload = {
       correct: isCorrect,
       isTimeout,
