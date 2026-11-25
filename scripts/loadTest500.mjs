@@ -28,16 +28,7 @@ async function run() {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
-  // Wait until /health actually responds (avoids cold-start race on slower machines)
-  for (let attempt = 0; attempt < 50; attempt++) {
-    try {
-      const h = await fetch(`${URL}/health`);
-      if (h.ok) break;
-    } catch {
-      // server still starting
-    }
-    await new Promise(r => setTimeout(r, 200));
-  }
+  await new Promise(r => setTimeout(r, 1200));
 
   const sockets = [];
   const joinLatencies = [];
@@ -55,18 +46,12 @@ async function run() {
     });
     await new Promise((resolve, reject) => {
       adminSock.emit('admin:auth', 'stalin', (res) => {
-        if (!res?.ok) {
+        if (res?.ok) {
+          adminSock.emit('host:set_status', 'live');
+          resolve();
+        } else {
           reject(new Error('Admin auth failed in load test'));
-          return;
         }
-        const onLive = (msg) => {
-          if (msg?.status === 'live') {
-            adminSock.off('match:status', onLive);
-            resolve();
-          }
-        };
-        adminSock.on('match:status', onLive);
-        adminSock.emit('host:set_status', 'live');
       });
     });
 

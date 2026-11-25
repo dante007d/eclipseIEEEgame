@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, type FormEvent } from 'react';
 import type { MatchConfig, MatchStatus, PlayerState, ValidationReport, YearGroup } from '../../types/game';
 import { GAME_NAME, SOCKET_EVENTS } from '../../types/game';
 import { socket, ensureSocketConnected, loadAdminCode, saveAdminCode, clearAdminCode } from '../../lib/socket';
-import { getBackendMode, getSupabase } from '../../lib/supabaseClient';
+import { getBackendMode, getSupabaseConfigError, tryGetSupabase } from '../../lib/supabaseClient';
 import { parseQuestionsForSupabase } from '../../lib/parseQuestionsClient';
 import { EclipseStage, GoldDivider } from '../GothicPrimitives';
 import HostLiveDashboard from './HostLiveDashboard';
@@ -85,9 +85,21 @@ export default function HostPortal({ onBackHome, onOpenProjector, globalTimeLeft
     if (!silent) setChecking(true);
     setAuthError(null);
 
+    const cfgError = getSupabaseConfigError();
+    if (cfgError) {
+      setChecking(false);
+      if (!silent) setAuthError(cfgError);
+      return;
+    }
+
     if (mode === 'supabase') {
+      const supabase = tryGetSupabase();
+      if (!supabase) {
+        setChecking(false);
+        if (!silent) setAuthError('Supabase client could not be initialized.');
+        return;
+      }
       try {
-        const supabase = getSupabase();
         const { data, error } = await supabase.rpc('eclipse_host_auth', {
           p_admin_code: codeToVerify,
           p_match_code: matchCode,
@@ -143,10 +155,15 @@ export default function HostPortal({ onBackHome, onOpenProjector, globalTimeLeft
   useEffect(() => {
     if (mode === 'supabase') {
       if (!authed) return;
-      const supabase = getSupabase();
+      const supabase = tryGetSupabase();
+      if (!supabase) return;
       const t = setInterval(async () => {
-        const { data } = await supabase.rpc('eclipse_get_standings', { p_match_code: matchCode });
-        if (data?.ok) applyStandingsPayload(data);
+        try {
+          const { data } = await supabase.rpc('eclipse_get_standings', { p_match_code: matchCode });
+          if (data?.ok) applyStandingsPayload(data);
+        } catch {
+          // Ignore transient polling failures
+        }
       }, 3000);
       return () => clearInterval(t);
     }
@@ -191,7 +208,8 @@ export default function HostPortal({ onBackHome, onOpenProjector, globalTimeLeft
 
   const runHostAction = async (action: string, payload: Record<string, unknown> = {}) => {
     if (mode !== 'supabase') return;
-    const supabase = getSupabase();
+    const supabase = tryGetSupabase();
+    if (!supabase) return;
     const { data } = await supabase.rpc('eclipse_host_action', {
       p_admin_code: adminSecret,
       p_match_code: matchCode,

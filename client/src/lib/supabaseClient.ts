@@ -1,13 +1,63 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-const FORCED_MODE = (import.meta.env.VITE_BACKEND_MODE as string | undefined)?.toLowerCase();
+function cleanEnvValue(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  return value.trim().replace(/^['"`]+|['"`]+$/g, '').trim();
+}
+
+function normalizeAndValidateSupabaseUrl(raw: string): { url: string | null; error: string | null } {
+  if (!raw) {
+    return { url: null, error: 'VITE_SUPABASE_URL is missing.' };
+  }
+  if (/\s/.test(raw)) {
+    return { url: null, error: 'VITE_SUPABASE_URL must not contain spaces.' };
+  }
+
+  let candidate = raw;
+  if (!/^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(candidate) && candidate.includes('.supabase.')) {
+    candidate = `https://${candidate}`;
+  }
+
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      return {
+        url: null,
+        error: 'VITE_SUPABASE_URL must start with https:// (use the Supabase Project URL, not a postgresql:// URI).',
+      };
+    }
+    if (!parsed.hostname) {
+      return { url: null, error: 'VITE_SUPABASE_URL is missing a valid hostname.' };
+    }
+    return { url: candidate.replace(/\/+$/, ''), error: null };
+  } catch {
+    return {
+      url: null,
+      error: 'VITE_SUPABASE_URL is invalid. Expected format: https://<project-ref>.supabase.co',
+    };
+  }
+}
+
+const RAW_SUPABASE_URL = cleanEnvValue(import.meta.env.VITE_SUPABASE_URL);
+const SUPABASE_ANON_KEY = cleanEnvValue(import.meta.env.VITE_SUPABASE_ANON_KEY);
+const FORCED_MODE = cleanEnvValue(import.meta.env.VITE_BACKEND_MODE).toLowerCase();
+const PARSED_URL = normalizeAndValidateSupabaseUrl(RAW_SUPABASE_URL);
 
 let cachedClient: SupabaseClient | null = null;
 
+export function getSupabaseConfigError(): string | null {
+  const attempted = FORCED_MODE === 'supabase' || Boolean(RAW_SUPABASE_URL) || Boolean(SUPABASE_ANON_KEY);
+  if (!attempted) return null;
+  if (!RAW_SUPABASE_URL && !SUPABASE_ANON_KEY) {
+    return 'VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are not set in environment variables.';
+  }
+  if (PARSED_URL.error) return PARSED_URL.error;
+  if (!SUPABASE_ANON_KEY) return 'VITE_SUPABASE_ANON_KEY is missing.';
+  return null;
+}
+
 export function isSupabaseConfigured(): boolean {
-  return Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
+  return Boolean(PARSED_URL.url && SUPABASE_ANON_KEY);
 }
 
 export type BackendMode = 'supabase' | 'socket';
@@ -18,15 +68,27 @@ export function getBackendMode(): BackendMode {
   return isSupabaseConfigured() ? 'supabase' : 'socket';
 }
 
-export function getSupabase(): SupabaseClient {
-  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    throw new Error('Supabase URL and Anon Key are not configured.');
+export function tryGetSupabase(): SupabaseClient | null {
+  if (!PARSED_URL.url || !SUPABASE_ANON_KEY) {
+    return null;
   }
   if (!cachedClient) {
-    cachedClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: { persistSession: false },
-      realtime: { params: { eventsPerSecond: 10 } },
-    });
+    try {
+      cachedClient = createClient(PARSED_URL.url, SUPABASE_ANON_KEY, {
+        auth: { persistSession: false },
+        realtime: { params: { eventsPerSecond: 10 } },
+      });
+    } catch {
+      return null;
+    }
   }
   return cachedClient;
+}
+
+export function getSupabase(): SupabaseClient {
+  const client = tryGetSupabase();
+  if (!client) {
+    throw new Error(getSupabaseConfigError() || 'Supabase URL and Anon Key are not configured.');
+  }
+  return client;
 }

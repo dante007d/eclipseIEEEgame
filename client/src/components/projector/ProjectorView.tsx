@@ -4,7 +4,7 @@ import type { MatchStatus, PlayerState } from '../../types/game';
 import { GAME_NAME, SOCKET_EVENTS } from '../../types/game';
 import { getThemeForLevel } from '../../theme/levelThemes';
 import { socket, ensureSocketConnected } from '../../lib/socket';
-import { getBackendMode, getSupabase } from '../../lib/supabaseClient';
+import { getBackendMode, tryGetSupabase } from '../../lib/supabaseClient';
 import { GoldDivider } from '../GothicPrimitives';
 
 interface ProjectorViewProps {
@@ -59,14 +59,19 @@ export default function ProjectorView({ onBack, globalTimeLeft = null }: Project
 
   useEffect(() => {
     if (mode === 'supabase') {
-      const supabase = getSupabase();
+      const supabase = tryGetSupabase();
+      if (!supabase) return;
       const load = async () => {
-        const { data } = await supabase.rpc('eclipse_get_standings', { p_match_code: matchCode });
-        if (data?.ok) {
-          setPlayers(data.players || []);
-          if (data.matchCode) setMatchCode(data.matchCode);
-          if (data.status) setMatchStatus(data.status);
-          setSbTimer(data.globalRemainingMs != null ? Math.ceil(data.globalRemainingMs / 1000) : null);
+        try {
+          const { data } = await supabase.rpc('eclipse_get_standings', { p_match_code: matchCode });
+          if (data?.ok) {
+            setPlayers(data.players || []);
+            if (data.matchCode) setMatchCode(data.matchCode);
+            if (data.status) setMatchStatus(data.status);
+            setSbTimer(data.globalRemainingMs != null ? Math.ceil(data.globalRemainingMs / 1000) : null);
+          }
+        } catch {
+          // Ignore transient polling failures
         }
       };
       load();

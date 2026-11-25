@@ -19,7 +19,7 @@ import {
   clearPlayerMeta,
   saveAdminCode,
 } from './socket';
-import { getBackendMode, getSupabase } from './supabaseClient';
+import { getBackendMode, getSupabaseConfigError, tryGetSupabase } from './supabaseClient';
 import { soundFX } from './sound';
 import {
   createInitialDemoState,
@@ -135,7 +135,12 @@ export function useEclipseBackend() {
   // ── SUPABASE MODE ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (mode !== 'supabase' || isDemo) return;
-    const supabase = getSupabase();
+    const supabase = tryGetSupabase();
+    if (!supabase) {
+      setConnected(false);
+      setReconnectingSession(false);
+      return;
+    }
     let cancelled = false;
 
     const applyPulseData = (data: {
@@ -446,8 +451,9 @@ export function useEclipseBackend() {
     const clean = code.trim();
     if (!clean) return false;
     if (mode === 'supabase') {
+      const supabase = tryGetSupabase();
+      if (!supabase) return false;
       try {
-        const supabase = getSupabase();
         const { data, error } = await supabase.rpc('eclipse_host_auth', {
           p_admin_code: clean,
           p_match_code: matchCode,
@@ -483,6 +489,13 @@ export function useEclipseBackend() {
     setJoinError(null);
     soundFX.unlockOnInteraction();
 
+    const cfgError = getSupabaseConfigError();
+    if (cfgError) {
+      setJoinLoading(false);
+      setJoinError(cfgError);
+      return 'error';
+    }
+
     // Check if the entered code is the Admin Control Code!
     const isAdmin = await tryAdminCode(code);
     if (isAdmin) {
@@ -501,8 +514,13 @@ export function useEclipseBackend() {
     const sessionId = getSessionId();
 
     if (mode === 'supabase') {
+      const supabase = tryGetSupabase();
+      if (!supabase) {
+        setJoinLoading(false);
+        setJoinError(getSupabaseConfigError() || 'Supabase client is not configured.');
+        return 'error';
+      }
       try {
-        const supabase = getSupabase();
         const { data, error } = await supabase.rpc('eclipse_join_match', {
           p_match_code: code,
           p_session_id: sessionId,
@@ -576,7 +594,8 @@ export function useEclipseBackend() {
     }
 
     if (mode === 'supabase') {
-      const supabase = getSupabase();
+      const supabase = tryGetSupabase();
+      if (!supabase) return;
       const { data, error } = await supabase.rpc('eclipse_submit_answer', {
         p_match_code: matchCode,
         p_session_id: getSessionId(),
@@ -608,7 +627,8 @@ export function useEclipseBackend() {
     }
 
     if (mode === 'supabase') {
-      const supabase = getSupabase();
+      const supabase = tryGetSupabase();
+      if (!supabase) return;
       const { data } = await supabase.rpc('eclipse_ready_next', {
         p_match_code: matchCode,
         p_session_id: getSessionId(),
@@ -628,7 +648,8 @@ export function useEclipseBackend() {
       return;
     }
     if (mode === 'supabase') {
-      const supabase = getSupabase();
+      const supabase = tryGetSupabase();
+      if (!supabase) return;
       await supabase.rpc('eclipse_report_cheat', {
         p_match_code: matchCode,
         p_session_id: getSessionId(),
@@ -648,7 +669,8 @@ export function useEclipseBackend() {
       return;
     }
     if (mode === 'supabase') {
-      const supabase = getSupabase();
+      const supabase = tryGetSupabase();
+      if (!supabase) return;
       const { data } = await supabase.rpc('eclipse_sever_run', {
         p_match_code: matchCode,
         p_session_id: getSessionId(),
@@ -672,7 +694,8 @@ export function useEclipseBackend() {
     setLastResult(null);
 
     if (mode === 'supabase') {
-      const supabase = getSupabase();
+      const supabase = tryGetSupabase();
+      if (!supabase) return;
       const { data } = await supabase.rpc('eclipse_join_match', {
         p_match_code: saved.matchCode,
         p_session_id: getSessionId(),
