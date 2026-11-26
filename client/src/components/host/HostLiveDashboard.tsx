@@ -129,7 +129,9 @@ export default function HostLiveDashboard({
                 onClick={() => onSetStatus('live')}
                 className="py-2.5 px-5 border-2 border-emerald-400 font-display text-xl tracking-[0.2em] text-white uppercase bg-emerald-700 hover:bg-emerald-600 transition-colors tabular-nums"
               >
-                ▶ START GAME ({players.length} READY)
+                {players.some(p => p.solved > 0 || p.fails > 0 || p.level > 0)
+                  ? `▶ RESUME GAME (${players.length} READY)`
+                  : `▶ START GAME (${players.length} READY)`}
               </button>
             ) : status === 'paused' || status === 'ended' ? (
               <button

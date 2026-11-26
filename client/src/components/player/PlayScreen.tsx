@@ -207,6 +207,16 @@ export default function PlayScreen({
   const pausedRemainingRef = useRef<{ token: string; ms: number } | null>(null);
   const insultTimerRef = useRef<number | null>(null);
   const lastQuestionTokenRef = useRef<string | null>(null);
+  const hasEnteredPlayRef = useRef(Boolean(question || player.solved > 0 || player.fails > 0 || player.level > 0));
+
+  // Track whether this session has entered active gameplay (distinguishes initial lobby wait vs mid-game hold)
+  useEffect(() => {
+    if (question || player.solved > 0 || player.fails > 0 || player.level > 0) {
+      hasEnteredPlayRef.current = true;
+    } else if (matchStatus === 'pending' && !question && player.level === 0 && player.solved === 0 && player.fails === 0) {
+      hasEnteredPlayRef.current = false;
+    }
+  }, [question, player.solved, player.fails, player.level, matchStatus]);
 
   // Reset per-question feedback & play countdown bell only when questionToken changes
   useEffect(() => {
@@ -231,13 +241,16 @@ export default function PlayScreen({
     }
   }, [question?.questionToken]);
 
-  // Preserve remaining question clock while match is paused
+  // Preserve remaining question clock while halted/paused by Master (HOLD LOBBY or PAUSE)
   useEffect(() => {
-    if (matchStatus === 'paused' && localClockRef.current && question && localClockRef.current.token === question.questionToken) {
-      pausedRemainingRef.current = {
-        token: question.questionToken,
-        ms: Math.max(1000, localClockRef.current.deadlineAt - Date.now()),
-      };
+    const halted = matchStatus === 'paused' || matchStatus === 'pending';
+    if (halted && localClockRef.current && question && localClockRef.current.token === question.questionToken) {
+      if (!pausedRemainingRef.current || pausedRemainingRef.current.token !== question.questionToken) {
+        pausedRemainingRef.current = {
+          token: question.questionToken,
+          ms: Math.max(1000, localClockRef.current.deadlineAt - Date.now()),
+        };
+      }
     }
   }, [matchStatus, question?.questionToken]);
 
@@ -813,7 +826,7 @@ export default function PlayScreen({
         </div>
 
         {/* ── 3. TIMER -> 4. QUESTION CARD -> 5. 2x2 ANSWER BUTTONS ── */}
-        {matchStatus === 'pending' ? (
+        {matchStatus === 'pending' && !hasEnteredPlayRef.current && !question ? (
           <div className="my-auto eclipse-slab-box p-6 sm:p-8 text-center max-w-lg mx-auto w-full">
             <span className="eclipse-slab-label">[ STAGING CHAMBER // HOLD ]</span>
             <div className="inline-flex items-center gap-2 px-3 py-1 bg-[#120b05] border border-[#c69c5d]/60 font-mono text-[11px] text-[#e6c48a] uppercase tracking-widest mt-1 mb-4 tabular-nums">
@@ -1151,15 +1164,16 @@ export default function PlayScreen({
         />
       )}
 
-      {matchStatus === 'paused' && (
-        <div className="fixed inset-0 z-50 bg-black/92 flex items-center justify-center p-6">
-          <div className="eclipse-slab-box max-w-sm w-full text-center">
-            <span className="eclipse-slab-label">[ HOST HOLD ]</span>
-            <h3 className="font-display text-3xl tracking-[0.2em] text-[#e6c48a] uppercase pt-2">
-              MATCH PAUSED
+      {(matchStatus === 'paused' || (matchStatus === 'pending' && (hasEnteredPlayRef.current || Boolean(question)))) && (
+        <div className="fixed inset-0 z-50 bg-black/94 flex items-center justify-center p-6">
+          <div className="eclipse-slab-box max-w-md w-full text-center border border-[#ff0033]/60">
+            <span className="eclipse-slab-label">[ MASTER HALT ]</span>
+            <h3 className="font-display text-3xl sm:text-4xl tracking-[0.18em] text-[#ff0033] uppercase pt-2 animate-glitch">
+              THE MASTER PAUSED THE GAME
             </h3>
-            <p className="font-mono text-xs text-gray-300 mt-2">
-              TIMERS FROZEN BY HIGH COMMAND. STAND BY FOR RESUMPTION.
+            <GoldDivider className="my-3 w-40 mx-auto" />
+            <p className="font-mono text-xs text-[#cbbba0] uppercase leading-relaxed">
+              ALL TIMERS AND PROGRESS ARE FROZEN. THE ARENA WILL AUTOMATICALLY RESUME ON MASTER&apos;S COMMAND.
             </p>
           </div>
         </div>

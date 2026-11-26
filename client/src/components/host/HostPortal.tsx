@@ -211,13 +211,34 @@ export default function HostPortal({ onBackHome, onOpenProjector, globalTimeLeft
     if (mode !== 'supabase') return;
     const supabase = tryGetSupabase();
     if (!supabase) return;
+    const targetCode = matchCode;
     const { data } = await supabase.rpc('eclipse_host_action', {
       p_admin_code: adminSecret,
-      p_match_code: matchCode,
+      p_match_code: targetCode,
       p_action: action,
       p_payload: payload,
     });
-    if (data?.ok && data.standings) applyStandingsPayload(data.standings);
+    if (data?.ok && data.standings) {
+      applyStandingsPayload(data.standings);
+      if (action === 'set_status' || action === 'start_timer' || action === 'reset_all') {
+        try {
+          const ch = supabase.channel(`eclipse:match:${data.standings.matchCode || targetCode}`);
+          await ch.send({
+            type: 'broadcast',
+            event: 'match_signal',
+            payload: {
+              status: data.standings.status,
+              globalRemainingMs: data.standings.globalRemainingMs ?? null,
+              reset: action === 'reset_all',
+              at: Date.now(),
+            },
+          });
+          supabase.removeChannel(ch);
+        } catch {
+          // Polling fallback handles status sync if realtime channel send fails
+        }
+      }
+    }
   };
 
   if (!authed) {

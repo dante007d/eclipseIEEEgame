@@ -608,10 +608,15 @@ export function attachGameController(io, matchContext) {
         }
       } else if (newStatus === 'pending') {
         store.status = 'pending';
+        const now = Date.now();
+        if (prevStatus === 'live' && store.globalTimer) {
+          store.globalTimer.pausedRemainingMs = Math.max(0, store.globalTimer.endTime - now);
+        }
         for (const p of store.players.values()) {
           clearPlayerTimer(p);
-          p.activeQuestion = null;
-          p.pausedRemainingMs = null;
+          if (prevStatus === 'live' && p.activeQuestion && !p.activeQuestion.answered) {
+            p.pausedRemainingMs = Math.max(1000, p.activeQuestion.clientQuestion.deadlineAt - now);
+          }
         }
       } else {
         store.status = newStatus;

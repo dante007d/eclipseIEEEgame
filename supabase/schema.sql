@@ -1033,18 +1033,17 @@ BEGIN
     ELSIF p_payload->>'status' = 'pending' THEN
       UPDATE public.matches
       SET status = 'pending',
-          global_ends_at = NULL,
-          paused_remaining_ms = NULL,
+          paused_remaining_ms = CASE WHEN global_ends_at IS NOT NULL THEN GREATEST(0, floor(extract(epoch FROM (global_ends_at - now())) * 1000)) ELSE paused_remaining_ms END,
           pulse_cache = NULL,
           leaderboard_dirty = true
       WHERE id = v_match.id;
       UPDATE public.players
-      SET active_token = NULL,
-          active_question = NULL,
-          active_answered = false,
-          active_transition_pending = false,
-          paused_remaining_ms = NULL
-      WHERE match_id = v_match.id AND status = 'active';
+      SET paused_remaining_ms = CASE
+            WHEN active_question IS NOT NULL AND NOT active_answered AND active_deadline_at IS NOT NULL
+            THEN GREATEST(1000, floor(extract(epoch FROM (active_deadline_at - now())) * 1000))
+            ELSE paused_remaining_ms
+          END
+      WHERE match_id = v_match.id AND status = 'active' AND NOT active_answered AND active_question IS NOT NULL;
     ELSIF p_payload->>'status' = 'live' THEN
       UPDATE public.matches
       SET status = 'live',

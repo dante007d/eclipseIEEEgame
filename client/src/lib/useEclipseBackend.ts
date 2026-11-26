@@ -166,10 +166,7 @@ export function useEclipseBackend() {
       if (!data?.ok || cancelled) return;
       setConnected(true);
       if (data.matchCode) setMatchCode(data.matchCode);
-      if (data.status) {
-        setMatchStatus(data.status);
-        if (data.status === 'pending') setQuestion(null);
-      }
+      if (data.status) setMatchStatus(data.status);
       if (data.config) setConfig(data.config);
       if (data.globalRemainingMs != null) {
         setGlobalDeadline(Date.now() + data.globalRemainingMs);
@@ -274,10 +271,12 @@ export function useEclipseBackend() {
 
     let timerId: number;
     const scheduleNext = () => {
-      const isWaitingStart = Boolean(playerRef.current && matchStatusRef.current === 'pending');
-      const jitterMs = isWaitingStart
-        ? 1400 + Math.floor(Math.random() * 600)
-        : 11000 + Math.floor(Math.random() * 4000);
+      const isWaiting = Boolean(
+        playerRef.current && (matchStatusRef.current === 'pending' || matchStatusRef.current === 'paused')
+      );
+      const jitterMs = isWaiting
+        ? 1200 + Math.floor(Math.random() * 500)
+        : 4000 + Math.floor(Math.random() * 2000);
       timerId = window.setTimeout(async () => {
         await pollPulse();
         if (!cancelled) scheduleNext();
@@ -292,9 +291,66 @@ export function useEclipseBackend() {
     };
   }, [mode, isDemo, updateRankWithFlash]);
 
-  // Fast 1.2s wait loop while a joined player is holding in "WAITING FOR MASTER'S COMMAND"
+  // Instant <50ms Supabase Realtime broadcast listener for Start / Pause / Hold / Resume / Reset
   useEffect(() => {
-    if (mode !== 'supabase' || isDemo || !player || matchStatus !== 'pending') return;
+    if (mode !== 'supabase' || isDemo) return;
+    const supabase = tryGetSupabase();
+    if (!supabase) return;
+    let cancelled = false;
+    const channelCode = loadPlayerMeta()?.matchCode || matchCode || 'DANTE';
+
+    const signalChannel = supabase
+      .channel(`eclipse:match:${channelCode}`)
+      .on('broadcast', { event: 'match_signal' }, ({ payload }) => {
+        if (cancelled || !payload) return;
+        const nextStatus = payload.status as MatchStatus | undefined;
+        if (nextStatus) setMatchStatus(nextStatus);
+        if (payload.globalRemainingMs !== undefined) {
+          setGlobalDeadline(
+            payload.globalRemainingMs == null ? null : Date.now() + Number(payload.globalRemainingMs)
+          );
+        }
+        if (payload.reset) {
+          setQuestion(null);
+          setLastResult(null);
+          setGameOverData(null);
+          syncSupabasePulseRef.current?.();
+          return;
+        }
+        if (
+          nextStatus === 'live' &&
+          playerRef.current &&
+          playerRef.current.status === 'active' &&
+          !playerRef.current.finished &&
+          !questionRef.current &&
+          !pendingAdvanceTimerRef.current
+        ) {
+          lastAutoReadyRef.current = Date.now();
+          const savedMeta = loadPlayerMeta();
+          supabase
+            .rpc('eclipse_ready_next', {
+              p_match_code: savedMeta?.matchCode || channelCode,
+              p_session_id: getSessionId(),
+            })
+            .then(({ data: qRes }) => {
+              if (!cancelled && qRes?.ok && qRes.question) {
+                setQuestion(qRes.question);
+              }
+            }, () => {});
+        }
+      })
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(signalChannel);
+    };
+  }, [mode, isDemo, matchCode]);
+
+  // Fast 1.2s fallback sync while a joined player is waiting or paused
+  useEffect(() => {
+    if (mode !== 'supabase' || isDemo || !player) return;
+    if (matchStatus !== 'pending' && matchStatus !== 'paused') return;
     syncSupabasePulseRef.current?.();
     const id = window.setInterval(() => {
       syncSupabasePulseRef.current?.();
@@ -332,10 +388,7 @@ export function useEclipseBackend() {
 
     const onDisconnect = () => setConnected(false);
     const onMatchStatus = (payload: { status: MatchStatus; matchCode?: string; config?: MatchConfig }) => {
-      if (payload.status) {
-        setMatchStatus(payload.status);
-        if (payload.status === 'pending') setQuestion(null);
-      }
+      if (payload.status) setMatchStatus(payload.status);
       if (payload.matchCode) setMatchCode(payload.matchCode);
       if (payload.config) setConfig(payload.config);
     };
