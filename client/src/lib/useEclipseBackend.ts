@@ -79,6 +79,7 @@ export function useEclipseBackend() {
   questionRef.current = question;
   const pendingAdvanceTimerRef = useRef<number | null>(null);
   const lastAutoReadyRef = useRef<number>(0);
+  const syncSupabasePulseRef = useRef<(() => Promise<void>) | null>(null);
 
   const updateRankWithFlash = useCallback((nextRank: number | null) => {
     if (nextRank == null) return;
@@ -165,7 +166,10 @@ export function useEclipseBackend() {
       if (!data?.ok || cancelled) return;
       setConnected(true);
       if (data.matchCode) setMatchCode(data.matchCode);
-      if (data.status) setMatchStatus(data.status);
+      if (data.status) {
+        setMatchStatus(data.status);
+        if (data.status === 'pending') setQuestion(null);
+      }
       if (data.config) setConfig(data.config);
       if (data.globalRemainingMs != null) {
         setGlobalDeadline(Date.now() + data.globalRemainingMs);
@@ -265,13 +269,14 @@ export function useEclipseBackend() {
       setReconnectingSession(false);
     }
 
+    syncSupabasePulseRef.current = pollPulse;
     pollPulse();
 
     let timerId: number;
     const scheduleNext = () => {
       const isWaitingStart = Boolean(playerRef.current && matchStatusRef.current === 'pending');
       const jitterMs = isWaitingStart
-        ? 2400 + Math.floor(Math.random() * 1200)
+        ? 1400 + Math.floor(Math.random() * 600)
         : 11000 + Math.floor(Math.random() * 4000);
       timerId = window.setTimeout(async () => {
         await pollPulse();
@@ -282,9 +287,20 @@ export function useEclipseBackend() {
 
     return () => {
       cancelled = true;
+      syncSupabasePulseRef.current = null;
       clearTimeout(timerId);
     };
   }, [mode, isDemo, updateRankWithFlash]);
+
+  // Fast 1.2s wait loop while a joined player is holding in "WAITING FOR MASTER'S COMMAND"
+  useEffect(() => {
+    if (mode !== 'supabase' || isDemo || !player || matchStatus !== 'pending') return;
+    syncSupabasePulseRef.current?.();
+    const id = window.setInterval(() => {
+      syncSupabasePulseRef.current?.();
+    }, 1200);
+    return () => clearInterval(id);
+  }, [mode, isDemo, player, matchStatus]);
 
   // ── SOCKET.IO MODE ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -316,7 +332,10 @@ export function useEclipseBackend() {
 
     const onDisconnect = () => setConnected(false);
     const onMatchStatus = (payload: { status: MatchStatus; matchCode?: string; config?: MatchConfig }) => {
-      if (payload.status) setMatchStatus(payload.status);
+      if (payload.status) {
+        setMatchStatus(payload.status);
+        if (payload.status === 'pending') setQuestion(null);
+      }
       if (payload.matchCode) setMatchCode(payload.matchCode);
       if (payload.config) setConfig(payload.config);
     };
@@ -546,7 +565,7 @@ export function useEclipseBackend() {
         }
         savePlayerMeta({ name: trimmedName, year: 1, matchCode: data.matchCode || code });
         setPlayer(data.player);
-        if (data.question) setQuestion(data.question);
+        setQuestion(data.matchStatus === 'pending' ? null : (data.question ?? null));
         if (data.config) setConfig(data.config);
         if (data.matchStatus) setMatchStatus(data.matchStatus);
         if (data.matchCode) setMatchCode(data.matchCode);

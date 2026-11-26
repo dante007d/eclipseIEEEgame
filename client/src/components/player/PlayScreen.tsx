@@ -146,6 +146,9 @@ export default function PlayScreen({
   const isInRoom = player.phase === 'ROOM';
 
   const [timeLeft, setTimeLeft] = useState(() => (question ? secsLeft(question.deadlineAt) : config.mainTimerSec));
+  const [timeLeftMs, setTimeLeftMs] = useState(() =>
+    question ? Math.max(0, question.deadlineAt - Date.now()) : config.mainTimerSec * 1000
+  );
   const [insultToast, setInsultToast] = useState<string | null>(null);
   const [whisper, setWhisper] = useState<WhisperItem | null>(null);
   const [showDemoAnswer, setShowDemoAnswer] = useState(false);
@@ -286,10 +289,15 @@ export default function PlayScreen({
     }
 
     const activeClock = localClockRef.current;
-    setTimeLeft(secsLeft(activeClock.deadlineAt));
+    const initialMs = Math.max(0, activeClock.deadlineAt - Date.now());
+    setTimeLeftMs(initialMs);
+    setTimeLeft(Math.ceil(initialMs / 1000));
 
     const interval = setInterval(() => {
-      const left = secsLeft(activeClock.deadlineAt);
+      if (selectedRef.current) return;
+      const remMs = Math.max(0, activeClock.deadlineAt - Date.now());
+      const left = Math.ceil(remMs / 1000);
+      setTimeLeftMs(remMs);
       setTimeLeft(left);
 
       if (left > 0 && left <= 10 && lastTickSecRef.current !== left) {
@@ -316,7 +324,7 @@ export default function PlayScreen({
         setSelected('__TIMEOUT__');
         onSubmit(question.questionToken, '__TIMEOUT__');
       }
-    }, 250);
+    }, 50);
     return () => clearInterval(interval);
   }, [question, isInRoom, config.mainTimerSec, config.roomTimerSec, matchStatus, player.status, player.finished, failOverlay, showLevelCleared, activeTransition, onSubmit]);
 
@@ -805,7 +813,23 @@ export default function PlayScreen({
         </div>
 
         {/* ── 3. TIMER -> 4. QUESTION CARD -> 5. 2x2 ANSWER BUTTONS ── */}
-        {question ? (
+        {matchStatus === 'pending' ? (
+          <div className="my-auto eclipse-slab-box p-6 sm:p-8 text-center max-w-lg mx-auto w-full">
+            <span className="eclipse-slab-label">[ STAGING CHAMBER // HOLD ]</span>
+            <div className="inline-flex items-center gap-2 px-3 py-1 bg-[#120b05] border border-[#c69c5d]/60 font-mono text-[11px] text-[#e6c48a] uppercase tracking-widest mt-1 mb-4 tabular-nums">
+              <span className="w-2 h-2 bg-[#c69c5d] animate-ping" />
+              LOCKED IN // {pulse.total || 1} ASCENDANTS STANDING BY
+            </div>
+            <h2 className="font-display text-3xl sm:text-5xl text-[#e6c48a] tracking-[0.16em] uppercase leading-none mb-3 animate-glitch">
+              WAITING FOR MASTER&apos;S COMMAND
+            </h2>
+            <GoldDivider className="my-3 w-44 mx-auto" />
+            <p className="font-mono text-xs text-[#cbbba0] leading-relaxed uppercase">
+              AGENT <strong className="text-white">{player.name.toUpperCase()}</strong> HAS ENTERED THE CHAMBER.
+              HOLD POSITION — THE TRIAL BEGINS THE MOMENT MASTER ISSUES START.
+            </p>
+          </div>
+        ) : question ? (
           <div className="my-auto flex flex-col items-center space-y-3.5 py-1">
             {(rankFlash || insultToast) && (
               <div className="w-full text-center font-mono text-xs">
@@ -825,6 +849,7 @@ export default function PlayScreen({
 
             <EclipseTimerRing
               seconds={timeLeft}
+              remainingMs={timeLeftMs}
               total={totalSec}
               variant={isInRoom ? 'recovery' : 'main'}
             />
@@ -964,22 +989,6 @@ export default function PlayScreen({
                 </button>
               </div>
             )}
-          </div>
-        ) : matchStatus === 'pending' ? (
-          <div className="my-auto eclipse-slab-box p-6 sm:p-8 text-center max-w-lg mx-auto w-full">
-            <span className="eclipse-slab-label">[ STAGING CHAMBER // HOLD ]</span>
-            <div className="inline-flex items-center gap-2 px-3 py-1 bg-[#120b05] border border-[#c69c5d]/60 font-mono text-[11px] text-[#e6c48a] uppercase tracking-widest mt-1 mb-4 tabular-nums">
-              <span className="w-2 h-2 bg-[#c69c5d] animate-ping" />
-              LOCKED IN // {pulse.total || 1} ASCENDANTS STANDING BY
-            </div>
-            <h2 className="font-display text-3xl sm:text-5xl text-[#e6c48a] tracking-[0.16em] uppercase leading-none mb-3 animate-glitch">
-              WAITING FOR MASTER&apos;S COMMAND
-            </h2>
-            <GoldDivider className="my-3 w-44 mx-auto" />
-            <p className="font-mono text-xs text-[#cbbba0] leading-relaxed uppercase">
-              AGENT <strong className="text-white">{player.name.toUpperCase()}</strong> HAS ENTERED THE CHAMBER.
-              HOLD POSITION — THE TRIAL BEGINS THE MOMENT MASTER ISSUES START.
-            </p>
           </div>
         ) : (
           <div className="my-auto text-center font-mono text-xs text-[#e6c48a] uppercase tracking-widest">

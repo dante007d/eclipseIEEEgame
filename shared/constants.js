@@ -10,8 +10,8 @@ export const ROOMS_PER_LEVEL = 4;
 export const DEFAULT_CONFIG = {
   totalLevels: 60,
   roomsPerLevel: 4,
-  mainTimerSec: 50,
-  roomTimerSec: 50,
+  mainTimerSec: 60,
+  roomTimerSec: 60,
   matchDurationMinutes: null,
   roomDifficultyFractions: [0.8, 0.6, 0.4, 0.2],
   maxMainFailsPerLevel: null,

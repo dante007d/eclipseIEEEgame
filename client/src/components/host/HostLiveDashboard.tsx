@@ -147,6 +147,16 @@ export default function HostLiveDashboard({
               </button>
             )}
 
+            {status !== 'pending' && (
+              <button
+                onClick={() => onSetStatus('pending')}
+                className="py-2 px-3.5 border border-amber-500/70 font-mono text-xs font-bold tracking-wider uppercase text-amber-200 bg-[#1c1306] hover:bg-amber-900/50 transition-colors"
+                title="Hold all players on Waiting for Master's Command screen"
+              >
+                ↩ HOLD LOBBY
+              </button>
+            )}
+
             {status !== 'ended' && (
               <button
                 onClick={() => {

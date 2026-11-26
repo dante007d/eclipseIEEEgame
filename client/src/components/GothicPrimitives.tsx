@@ -273,14 +273,18 @@ export function RoomDepthIndicator({
 /** 3. Ouroboros Segmented Countdown Bar + Tactical Digital Readout (Zero Glass Bubbles) */
 export function EclipseTimerRing({
   seconds,
+  remainingMs,
   total,
   variant = 'main',
 }: {
   seconds: number;
+  remainingMs?: number;
   total: number;
   variant?: 'main' | 'recovery';
 }) {
-  const frac = total > 0 ? Math.min(1, Math.max(0, seconds / total)) : 0;
+  const totalMs = total > 0 ? total * 1000 : 1;
+  const activeMs = remainingMs !== undefined ? remainingMs : seconds * 1000;
+  const frac = Math.min(1, Math.max(0, activeMs / totalMs));
   const isWarning = seconds > 0 && seconds <= 10;
   const isTense = variant === 'recovery' || frac <= 0.5;
   const fillBg = isWarning ? '#ff0033' : isTense ? '#d97706' : '#c69c5d';

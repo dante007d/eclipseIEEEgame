@@ -15,8 +15,8 @@ CREATE TABLE IF NOT EXISTS public.matches (
   config              jsonb NOT NULL DEFAULT '{
     "totalLevels": 60,
     "roomsPerLevel": 4,
-    "mainTimerSec": 50,
-    "roomTimerSec": 50,
+    "mainTimerSec": 60,
+    "roomTimerSec": 60,
     "matchDurationMinutes": null,
     "roomDifficultyFractions": [0.8, 0.6, 0.4, 0.2],
     "maxMainFailsPerLevel": null,
@@ -169,8 +169,14 @@ VALUES (
   encode(digest('stalin', 'sha256'), 'hex')
 )
 ON CONFLICT (code) DO UPDATE
-  SET admin_code_hash = EXCLUDED.admin_code_hash,
-      config = public.matches.config || '{"mainTimerSec": 50, "roomTimerSec": 50}'::jsonb;
+  SET status = 'pending',
+      global_ends_at = NULL,
+      paused_remaining_ms = NULL,
+      last_game_over = NULL,
+      pulse_cache = NULL,
+      leaderboard_dirty = true,
+      admin_code_hash = EXCLUDED.admin_code_hash,
+      config = public.matches.config || '{"mainTimerSec": 60, "roomTimerSec": 60}'::jsonb;
 
 -- ─── 5. HELPER FUNCTIONS ─────────────────────────────────────────────────────
 
@@ -241,11 +247,11 @@ BEGIN
 
   IF v_p.phase = 'MAIN' OR v_p.room <= 0 THEN
     v_target := v_next_lv;
-    v_timer_sec := COALESCE((p_config->>'mainTimerSec')::int, 50);
+    v_timer_sec := COALESCE((p_config->>'mainTimerSec')::int, 60);
   ELSE
     v_frac := COALESCE((p_config->'roomDifficultyFractions'->>(LEAST(3, GREATEST(0, v_p.room - 1))))::numeric, 0.2);
     v_target := GREATEST(1, LEAST(v_next_lv, round(v_next_lv * v_frac)::int));
-    v_timer_sec := COALESCE((p_config->>'roomTimerSec')::int, 50);
+    v_timer_sec := COALESCE((p_config->>'roomTimerSec')::int, 60);
   END IF;
 
   -- 1. Unseen question matching target or nearest difficulty across unified bank
@@ -476,8 +482,8 @@ BEGIN
   END IF;
 
   v_timer_sec := CASE
-    WHEN v_player.phase = 'MAIN' THEN COALESCE((v_match.config->>'mainTimerSec')::int, 50)
-    ELSE COALESCE((v_match.config->>'roomTimerSec')::int, 50)
+    WHEN v_player.phase = 'MAIN' THEN COALESCE((v_match.config->>'mainTimerSec')::int, 60)
+    ELSE COALESCE((v_match.config->>'roomTimerSec')::int, 60)
   END;
   v_deadline := now() + make_interval(secs => v_timer_sec);
   v_q := jsonb_set(v_player.active_question, '{deadlineAt}', to_jsonb(floor(extract(epoch FROM v_deadline) * 1000)));
@@ -1018,17 +1024,34 @@ BEGIN
       UPDATE public.matches
       SET status = 'paused',
           paused_remaining_ms = CASE WHEN global_ends_at IS NOT NULL THEN GREATEST(0, floor(extract(epoch FROM (global_ends_at - now())) * 1000)) ELSE NULL END,
+          pulse_cache = NULL,
           leaderboard_dirty = true
       WHERE id = v_match.id;
       UPDATE public.players
       SET paused_remaining_ms = GREATEST(1000, floor(extract(epoch FROM (active_deadline_at - now())) * 1000))
       WHERE match_id = v_match.id AND status = 'active' AND NOT active_answered AND active_deadline_at IS NOT NULL;
+    ELSIF p_payload->>'status' = 'pending' THEN
+      UPDATE public.matches
+      SET status = 'pending',
+          global_ends_at = NULL,
+          paused_remaining_ms = NULL,
+          pulse_cache = NULL,
+          leaderboard_dirty = true
+      WHERE id = v_match.id;
+      UPDATE public.players
+      SET active_token = NULL,
+          active_question = NULL,
+          active_answered = false,
+          active_transition_pending = false,
+          paused_remaining_ms = NULL
+      WHERE match_id = v_match.id AND status = 'active';
     ELSIF p_payload->>'status' = 'live' THEN
       UPDATE public.matches
       SET status = 'live',
           global_ends_at = CASE WHEN paused_remaining_ms IS NOT NULL THEN now() + ((paused_remaining_ms || ' milliseconds')::interval) ELSE global_ends_at END,
           paused_remaining_ms = NULL,
           last_game_over = NULL,
+          pulse_cache = NULL,
           leaderboard_dirty = true
       WHERE id = v_match.id;
       IF v_match.status = 'pending' THEN
@@ -1039,8 +1062,8 @@ BEGIN
         WHERE match_id = v_match.id AND status = 'active' AND level = 0 AND active_question IS NULL;
       END IF;
       UPDATE public.players
-      SET active_deadline_at = now() + ((COALESCE(paused_remaining_ms, 30000) || ' milliseconds')::interval),
-          active_question = CASE WHEN active_question IS NOT NULL THEN jsonb_set(active_question, '{deadlineAt}', to_jsonb(floor(extract(epoch FROM (now() + ((COALESCE(paused_remaining_ms, 30000) || ' milliseconds')::interval))) * 1000))) ELSE NULL END,
+      SET active_deadline_at = now() + ((COALESCE(paused_remaining_ms, 60000) || ' milliseconds')::interval),
+          active_question = CASE WHEN active_question IS NOT NULL THEN jsonb_set(active_question, '{deadlineAt}', to_jsonb(floor(extract(epoch FROM (now() + ((COALESCE(paused_remaining_ms, 60000) || ' milliseconds')::interval))) * 1000))) ELSE NULL END,
           paused_remaining_ms = NULL
       WHERE match_id = v_match.id AND status = 'active' AND NOT active_answered AND active_question IS NOT NULL;
     ELSIF p_payload->>'status' = 'ended' THEN
@@ -1050,6 +1073,7 @@ BEGIN
       SET status = 'ended',
           global_ends_at = NULL,
           paused_remaining_ms = NULL,
+          pulse_cache = NULL,
           leaderboard_dirty = true,
           last_game_over = jsonb_build_object(
             'at', floor(extract(epoch FROM now()) * 1000),
@@ -1060,21 +1084,22 @@ BEGIN
     END IF;
 
   ELSIF p_action = 'update_config' THEN
-    UPDATE public.matches SET config = v_match.config || p_payload, leaderboard_dirty = true WHERE id = v_match.id;
+    UPDATE public.matches SET config = v_match.config || p_payload, pulse_cache = NULL, leaderboard_dirty = true WHERE id = v_match.id;
 
   ELSIF p_action = 'start_timer' THEN
     v_sec := LEAST(86400, GREATEST(10, COALESCE((p_payload->>'seconds')::int, 3600)));
     UPDATE public.matches
-    SET global_ends_at = now() + make_interval(secs => v_sec),
-        paused_remaining_ms = NULL,
-        status = 'live',
+    SET global_ends_at = CASE WHEN status = 'pending' THEN NULL ELSE now() + make_interval(secs => v_sec) END,
+        paused_remaining_ms = CASE WHEN status = 'pending' THEN v_sec * 1000 ELSE NULL END,
+        status = CASE WHEN status = 'ended' THEN 'live' ELSE status END,
         last_game_over = NULL,
+        pulse_cache = NULL,
         leaderboard_dirty = true
     WHERE id = v_match.id;
 
   ELSIF p_action = 'disqualify' THEN
     UPDATE public.players SET status = 'disqualified', active_answered = true WHERE match_id = v_match.id AND id = (p_payload->>'playerId')::uuid;
-    UPDATE public.matches SET leaderboard_dirty = true WHERE id = v_match.id;
+    UPDATE public.matches SET pulse_cache = NULL, leaderboard_dirty = true WHERE id = v_match.id;
 
   ELSIF p_action = 'reset_all' THEN
     DELETE FROM public.players WHERE match_id = v_match.id;

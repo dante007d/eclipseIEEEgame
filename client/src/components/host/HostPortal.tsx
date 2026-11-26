@@ -157,6 +157,7 @@ export default function HostPortal({ onBackHome, onOpenProjector, globalTimeLeft
       if (!authed) return;
       const supabase = tryGetSupabase();
       if (!supabase) return;
+      const intervalMs = status === 'pending' ? 1500 : 3000;
       const t = setInterval(async () => {
         try {
           const { data } = await supabase.rpc('eclipse_get_standings', { p_match_code: matchCode });
@@ -164,7 +165,7 @@ export default function HostPortal({ onBackHome, onOpenProjector, globalTimeLeft
         } catch {
           // Ignore transient polling failures
         }
-      }, 3000);
+      }, intervalMs);
       return () => clearInterval(t);
     }
 
@@ -191,7 +192,7 @@ export default function HostPortal({ onBackHome, onOpenProjector, globalTimeLeft
       socket.off(SOCKET_EVENTS.LEADERBOARD, onLeaderboard);
       socket.off('host:meta', onMeta);
     };
-  }, [mode, authed, matchCode, applyStandingsPayload]);
+  }, [mode, authed, status, matchCode, applyStandingsPayload]);
 
   const handleAuth = (e: FormEvent) => {
     e.preventDefault();

@@ -125,11 +125,11 @@ export const STATUS_COLORS = {
 // ─── Timer config (seconds per room) ─────────────────────────────────────────
 
 export const TIMER_DEFAULTS: Record<RoomId, number> = {
-  MAIN:    50,
-  BUFFER:  50,
-  CACHE:   50,
-  SANDBOX: 50,
-  VOID:    50,
+  MAIN:    60,
+  BUFFER:  60,
+  CACHE:   60,
+  SANDBOX: 60,
+  VOID:    60,
 };
 
 // ─── Scoring config ───────────────────────────────────────────────────────────

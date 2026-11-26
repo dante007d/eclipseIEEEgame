@@ -606,6 +606,13 @@ export function attachGameController(io, matchContext) {
             }
           }
         }
+      } else if (newStatus === 'pending') {
+        store.status = 'pending';
+        for (const p of store.players.values()) {
+          clearPlayerTimer(p);
+          p.activeQuestion = null;
+          p.pausedRemainingMs = null;
+        }
       } else {
         store.status = newStatus;
       }
@@ -621,8 +628,11 @@ export function attachGameController(io, matchContext) {
 
     adminOn(SOCKET_EVENTS.HOST_START_GLOBAL_TIMER, (durationSeconds) => {
       const seconds = num(durationSeconds, 10, 24 * 3600);
-      store.globalTimer = { endTime: Date.now() + seconds * 1000, pausedRemainingMs: null };
-      if (store.status === 'ended' || store.status === 'pending') {
+      store.globalTimer = {
+        endTime: Date.now() + seconds * 1000,
+        pausedRemainingMs: store.status === 'pending' ? seconds * 1000 : null,
+      };
+      if (store.status === 'ended') {
         store.status = 'live';
       }
       store.lastGameOver = null;
