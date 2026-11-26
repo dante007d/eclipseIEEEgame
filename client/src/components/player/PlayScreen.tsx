@@ -200,26 +200,96 @@ export default function PlayScreen({
   roomsPerLevelRef.current = config.roomsPerLevel;
   const onReadyNextRef = useRef(onReadyNext);
   onReadyNextRef.current = onReadyNext;
+  const localClockRef = useRef<{ token: string; deadlineAt: number; armedAt: number } | null>(null);
+  const pausedRemainingRef = useRef<{ token: string; ms: number } | null>(null);
+  const insultTimerRef = useRef<number | null>(null);
+  const lastQuestionTokenRef = useRef<string | null>(null);
 
-  // Reset per-question feedback & play countdown bell
+  // Reset per-question feedback & play countdown bell only when questionToken changes
   useEffect(() => {
-    setSelected(null);
-    setAnswerFeedback(null);
-    lastTickSecRef.current = -1;
-    if (question && bellPlayedTokenRef.current !== question.questionToken) {
-      bellPlayedTokenRef.current = question.questionToken;
-      soundFX.playCountdownBegin();
+    const token = question?.questionToken ?? null;
+    if (token !== lastQuestionTokenRef.current) {
+      lastQuestionTokenRef.current = token;
+      pausedRemainingRef.current = null;
+      if (!token || timedOutTokenRef.current !== token) {
+        setSelected(null);
+      }
+      setAnswerFeedback(null);
+      setInsultToast(null);
+      if (insultTimerRef.current) {
+        clearTimeout(insultTimerRef.current);
+        insultTimerRef.current = null;
+      }
+      lastTickSecRef.current = -1;
+      if (token && bellPlayedTokenRef.current !== token) {
+        bellPlayedTokenRef.current = token;
+        soundFX.playCountdownBegin();
+      }
     }
-  }, [question]);
+  }, [question?.questionToken]);
 
-  // Timer tick & 5s TIMER_INSULTS trigger under 20s + quiet tick < 10s
+  // Preserve remaining question clock while match is paused
+  useEffect(() => {
+    if (matchStatus === 'paused' && localClockRef.current && question && localClockRef.current.token === question.questionToken) {
+      pausedRemainingRef.current = {
+        token: question.questionToken,
+        ms: Math.max(1000, localClockRef.current.deadlineAt - Date.now()),
+      };
+    }
+  }, [matchStatus, question?.questionToken]);
+
+  // Clear transient overlays when re-entering active play with cleared result
+  useEffect(() => {
+    if (player.status === 'active' && !player.finished && lastResult === null) {
+      setConfirmSeverModal(false);
+      setFailOverlay(null);
+      setActiveTransition(null);
+      setShowLevelCleared(null);
+      setAnswerFeedback(null);
+    }
+  }, [player.status, player.finished, lastResult]);
+
+  // Skew-safe timer tick & 5s TIMER_INSULTS trigger under 20s + quiet tick < 10s
   useEffect(() => {
     if (!question || matchStatus !== 'live' || player.status !== 'active' || player.finished) return;
     if (failOverlay || showLevelCleared || activeTransition) return;
 
-    setTimeLeft(secsLeft(question.deadlineAt));
+    const fullMs = (isInRoom ? config.roomTimerSec : config.mainTimerSec) * 1000;
+    const now = Date.now();
+    if (pausedRemainingRef.current && pausedRemainingRef.current.token === question.questionToken) {
+      localClockRef.current = {
+        token: question.questionToken,
+        deadlineAt: now + pausedRemainingRef.current.ms,
+        armedAt: now,
+      };
+      pausedRemainingRef.current = null;
+    } else {
+      const rawLeftMs = question.deadlineAt - now;
+      const skewSafeMs =
+        rawLeftMs > 1500 && rawLeftMs <= fullMs + 6000
+          ? Math.min(rawLeftMs, fullMs)
+          : fullMs;
+
+      if (!localClockRef.current || localClockRef.current.token !== question.questionToken) {
+        localClockRef.current = {
+          token: question.questionToken,
+          deadlineAt: now + skewSafeMs,
+          armedAt: now,
+        };
+      } else if (now + skewSafeMs > localClockRef.current.deadlineAt + 1000) {
+        localClockRef.current = {
+          token: question.questionToken,
+          deadlineAt: now + skewSafeMs,
+          armedAt: now,
+        };
+      }
+    }
+
+    const activeClock = localClockRef.current;
+    setTimeLeft(secsLeft(activeClock.deadlineAt));
+
     const interval = setInterval(() => {
-      const left = secsLeft(question.deadlineAt);
+      const left = secsLeft(activeClock.deadlineAt);
       setTimeLeft(left);
 
       if (left > 0 && left <= 10 && lastTickSecRef.current !== left) {
@@ -229,17 +299,26 @@ export default function PlayScreen({
       }
       if (left <= 20 && left > 0 && insultedTokenRef.current !== question.questionToken) {
         insultedTokenRef.current = question.questionToken;
+        if (insultTimerRef.current) clearTimeout(insultTimerRef.current);
         setInsultToast(pickUnique(TIMER_INSULTS, timerInsultTrackerRef.current));
-        setTimeout(() => setInsultToast(null), INSULT_MS);
+        insultTimerRef.current = window.setTimeout(() => {
+          insultTimerRef.current = null;
+          setInsultToast(null);
+        }, INSULT_MS);
       }
-      if (left === 0 && !selected && timedOutTokenRef.current !== question.questionToken) {
+      if (
+        left === 0 &&
+        !selectedRef.current &&
+        Date.now() - activeClock.armedAt >= 2000 &&
+        timedOutTokenRef.current !== question.questionToken
+      ) {
         timedOutTokenRef.current = question.questionToken;
         setSelected('__TIMEOUT__');
         onSubmit(question.questionToken, '__TIMEOUT__');
       }
     }, 250);
     return () => clearInterval(interval);
-  }, [question, matchStatus, player.status, player.finished, failOverlay, showLevelCleared, activeTransition, selected, onSubmit]);
+  }, [question, isInRoom, config.mainTimerSec, config.roomTimerSec, matchStatus, player.status, player.finished, failOverlay, showLevelCleared, activeTransition, onSubmit]);
 
   // Margin Whispers while question is active
   useEffect(() => {
@@ -288,7 +367,7 @@ export default function PlayScreen({
           setShowLevelCleared({ level: newLevel ?? playerLevelRef.current, pointsGained });
         } else if (transition === 'FINISH') {
           soundFX.playVictory();
-          setActiveTransition({ transition, pointsGained, key: Date.now() });
+          setActiveTransition(null);
         } else if (transition === 'RETURN_TO_MAIN') {
           soundFX.playReturn();
           setActiveTransition({ transition, pointsGained, newLevel, key: Date.now() });
@@ -298,6 +377,11 @@ export default function PlayScreen({
     }
 
     // Wrong answer or timeout -> exact 5-second non-repeating brutal ragebait failure display
+    if (insultTimerRef.current) {
+      clearTimeout(insultTimerRef.current);
+      insultTimerRef.current = null;
+    }
+    setInsultToast(null);
     const failTracker = failRoastTrackerRef.current ?? loadRoastTracker();
     failRoastTrackerRef.current = failTracker;
     const savage = claimUnique(roast, SAVAGES, failTracker);
@@ -433,7 +517,7 @@ export default function PlayScreen({
       if (armedRef.current) e.preventDefault();
     };
     const onKeyDown = (e: KeyboardEvent) => {
-      if (!armedRef.current) return;
+      if (!armedRef.current || !e.key) return;
       const key = e.key.toLowerCase();
       const ctrlOrMeta = e.ctrlKey || e.metaKey;
       const isDevtools =

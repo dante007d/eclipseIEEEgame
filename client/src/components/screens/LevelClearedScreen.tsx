@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { soundFX } from '../../lib/sound';
 import { EclipseStage, GoldDivider } from '../GothicPrimitives';
 
@@ -14,12 +14,19 @@ export default function LevelClearedScreen({
   onNextLevel,
 }: LevelClearedScreenProps) {
   const nextLevel = Math.min(60, currentLevel + 1);
+  const dismissedRef = useRef(false);
+
+  const advanceOnce = useCallback(() => {
+    if (dismissedRef.current) return;
+    dismissedRef.current = true;
+    onNextLevel();
+  }, [onNextLevel]);
 
   useEffect(() => {
     soundFX.playLevelCleared();
-    const t = setTimeout(onNextLevel, 1600);
+    const t = setTimeout(advanceOnce, 1600);
     return () => clearTimeout(t);
-  }, [onNextLevel]);
+  }, [advanceOnce]);
 
   return (
     <div className="fixed inset-0 z-40">
@@ -64,7 +71,7 @@ export default function LevelClearedScreen({
               type="button"
               onClick={() => {
                 soundFX.playButtonClick();
-                onNextLevel();
+                advanceOnce();
               }}
               className="eclipse-btn-obsidian w-full py-3.5 px-6 font-display text-2xl tracking-[0.22em] uppercase"
             >

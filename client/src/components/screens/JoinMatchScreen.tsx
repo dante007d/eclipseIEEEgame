@@ -23,6 +23,7 @@ export default function JoinMatchScreen({
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
+    soundFX.unlockOnInteraction();
     soundFX.playButtonClick();
     const joinedCode = code.trim().toUpperCase();
     const trimmedName = name.trim();

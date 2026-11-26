@@ -77,6 +77,8 @@ export function useEclipseBackend() {
   playerRef.current = player;
   const questionRef = useRef<Question | null>(question);
   questionRef.current = question;
+  const pendingAdvanceTimerRef = useRef<number | null>(null);
+  const lastAutoReadyRef = useRef<number>(0);
 
   const updateRankWithFlash = useCallback((nextRank: number | null) => {
     if (nextRank == null) return;
@@ -161,7 +163,6 @@ export function useEclipseBackend() {
       lastGameOver?: GameOverData | null;
     }) => {
       if (!data?.ok || cancelled) return;
-      const wasPending = matchStatusRef.current === 'pending';
       setConnected(true);
       if (data.matchCode) setMatchCode(data.matchCode);
       if (data.status) setMatchStatus(data.status);
@@ -171,8 +172,18 @@ export function useEclipseBackend() {
       } else {
         setGlobalDeadline(null);
       }
-      // Automatically pull Question 1 the moment Master switches pending -> live
-      if (wasPending && data.status === 'live' && playerRef.current && !questionRef.current) {
+      const now = Date.now();
+      // Self-healing Question fetch when match is live and active player has no question loaded
+      if (
+        data.status === 'live' &&
+        playerRef.current &&
+        playerRef.current.status === 'active' &&
+        !playerRef.current.finished &&
+        !questionRef.current &&
+        !pendingAdvanceTimerRef.current &&
+        now - lastAutoReadyRef.current >= 2000
+      ) {
+        lastAutoReadyRef.current = now;
         const savedMeta = loadPlayerMeta();
         supabase
           .rpc('eclipse_ready_next', {
@@ -183,7 +194,7 @@ export function useEclipseBackend() {
             if (!cancelled && qRes?.ok && qRes.question) {
               setQuestion(qRes.question);
             }
-          });
+          }, () => {});
       }
       if (data.rank != null) updateRankWithFlash(data.rank);
       if (data.myStatus === 'disqualified') {
@@ -578,44 +589,6 @@ export function useEclipseBackend() {
     });
   }, [mode, tryAdminCode, updateRankWithFlash]);
 
-  const submitAnswer = useCallback(async (questionToken: string, optionId: string) => {
-    lastSubmittedOptionRef.current = optionId;
-
-    if (isDemo && demoRef.current) {
-      const { nextState, result } = evaluateDemoAnswer(demoRef.current, optionId);
-      demoRef.current = nextState;
-      setLastResult({ ...result, selectedOptionId: optionId });
-      setTimeout(() => {
-        setPlayer(nextState.player);
-        setQuestion(nextState.question);
-        setDemoHintAnswer(nextState.correctOptionId);
-      }, result.correct ? 600 : 4900);
-      return;
-    }
-
-    if (mode === 'supabase') {
-      const supabase = tryGetSupabase();
-      if (!supabase) return;
-      const { data, error } = await supabase.rpc('eclipse_submit_answer', {
-        p_match_code: matchCode,
-        p_session_id: getSessionId(),
-        p_question_token: questionToken,
-        p_option_id: optionId,
-      });
-      if (!error && data?.ok) {
-        setLastResult({ ...data.result, player: data.player, selectedOptionId: optionId });
-        setTimeout(() => {
-          if (data.player) setPlayer(data.player);
-          if (data.nextQuestion) setQuestion(data.nextQuestion);
-          if (data.rank != null) updateRankWithFlash(data.rank);
-        }, data.result?.correct ? 600 : 4900);
-      }
-      return;
-    }
-
-    socket.emit(SOCKET_EVENTS.ANSWER_SUBMIT, { questionToken, optionId });
-  }, [isDemo, mode, matchCode, updateRankWithFlash]);
-
   const readyNext = useCallback(async () => {
     if (isDemo && demoRef.current) {
       const cur = demoRef.current;
@@ -629,16 +602,70 @@ export function useEclipseBackend() {
     if (mode === 'supabase') {
       const supabase = tryGetSupabase();
       if (!supabase) return;
-      const { data } = await supabase.rpc('eclipse_ready_next', {
-        p_match_code: matchCode,
-        p_session_id: getSessionId(),
-      });
-      if (data?.ok && data.question) setQuestion(data.question);
+      try {
+        const { data } = await supabase.rpc('eclipse_ready_next', {
+          p_match_code: matchCode,
+          p_session_id: getSessionId(),
+        });
+        if (data?.ok && data.question) setQuestion(data.question);
+      } catch {
+        // Ignore transient sync failures
+      }
       return;
     }
 
     socket.emit(SOCKET_EVENTS.READY_NEXT);
   }, [isDemo, mode, matchCode]);
+
+  const submitAnswer = useCallback(async (questionToken: string, optionId: string) => {
+    lastSubmittedOptionRef.current = optionId;
+    if (pendingAdvanceTimerRef.current) {
+      clearTimeout(pendingAdvanceTimerRef.current);
+      pendingAdvanceTimerRef.current = null;
+    }
+
+    if (isDemo && demoRef.current) {
+      const { nextState, result } = evaluateDemoAnswer(demoRef.current, optionId);
+      demoRef.current = nextState;
+      setLastResult({ ...result, selectedOptionId: optionId });
+      pendingAdvanceTimerRef.current = window.setTimeout(() => {
+        pendingAdvanceTimerRef.current = null;
+        setPlayer(nextState.player);
+        setQuestion(nextState.question);
+        setDemoHintAnswer(nextState.correctOptionId);
+      }, result.correct ? 600 : 4900);
+      return;
+    }
+
+    if (mode === 'supabase') {
+      const supabase = tryGetSupabase();
+      if (!supabase) return;
+      try {
+        const { data, error } = await supabase.rpc('eclipse_submit_answer', {
+          p_match_code: matchCode,
+          p_session_id: getSessionId(),
+          p_question_token: questionToken,
+          p_option_id: optionId,
+        });
+        if (!error && data?.ok) {
+          setLastResult({ ...data.result, player: data.player, selectedOptionId: optionId });
+          pendingAdvanceTimerRef.current = window.setTimeout(() => {
+            pendingAdvanceTimerRef.current = null;
+            if (data.player) setPlayer(data.player);
+            if (data.nextQuestion) setQuestion(data.nextQuestion);
+            if (data.rank != null) updateRankWithFlash(data.rank);
+          }, data.result?.correct ? 600 : 4900);
+        } else {
+          await readyNext();
+        }
+      } catch {
+        await readyNext();
+      }
+      return;
+    }
+
+    socket.emit(SOCKET_EVENTS.ANSWER_SUBMIT, { questionToken, optionId });
+  }, [isDemo, mode, matchCode, readyNext, updateRankWithFlash]);
 
   const reportCheat = useCallback(async (kind: string) => {
     if (isDemo && demoRef.current) {
@@ -684,6 +711,10 @@ export function useEclipseBackend() {
   const reenterRun = useCallback(async () => {
     soundFX.unlockOnInteraction();
     soundFX.playMatchJoined();
+    if (pendingAdvanceTimerRef.current) {
+      clearTimeout(pendingAdvanceTimerRef.current);
+      pendingAdvanceTimerRef.current = null;
+    }
     if (isDemo) {
       startDemo(player?.name || 'Orion');
       return;
@@ -696,16 +727,24 @@ export function useEclipseBackend() {
     if (mode === 'supabase') {
       const supabase = tryGetSupabase();
       if (!supabase) return;
-      const { data } = await supabase.rpc('eclipse_join_match', {
-        p_match_code: saved.matchCode,
-        p_session_id: getSessionId(),
-        p_name: saved.name,
-        p_year: 1,
-        p_reenter: true,
-      });
-      if (data?.ok) {
-        setPlayer(data.player);
-        if (data.question) setQuestion(data.question);
+      try {
+        const { data } = await supabase.rpc('eclipse_join_match', {
+          p_match_code: saved.matchCode,
+          p_session_id: getSessionId(),
+          p_name: saved.name,
+          p_year: 1,
+          p_reenter: true,
+        });
+        if (data?.ok) {
+          setPlayer(data.player);
+          setQuestion(data.question ?? null);
+          if (data.config) setConfig(data.config);
+          if (data.matchStatus) setMatchStatus(data.matchStatus);
+          if (data.matchCode) setMatchCode(data.matchCode);
+          if (data.rank != null) updateRankWithFlash(data.rank);
+        }
+      } catch {
+        // Ignore transient re-entry failures
       }
       return;
     }
@@ -717,7 +756,7 @@ export function useEclipseBackend() {
       matchCode: saved.matchCode,
       reenter: true,
     });
-  }, [isDemo, mode, player?.name, startDemo]);
+  }, [isDemo, mode, player?.name, startDemo, updateRankWithFlash]);
 
   const leaveToPortal = useCallback(() => {
     soundFX.stopAmbient();

@@ -534,7 +534,7 @@ BEGIN
 
   v_prev_level := v_p.level;
   v_prev_room := v_p.room;
-  v_is_timeout := (p_option_id IS NULL) OR (p_option_id = '__TIMEOUT__') OR (now() > (v_p.active_deadline_at + interval '1 second'));
+  v_is_timeout := (p_option_id IS NULL) OR (p_option_id = '__TIMEOUT__') OR (now() > (v_p.active_deadline_at + interval '3 seconds'));
   v_is_correct := (NOT v_is_timeout) AND (p_option_id = v_p.active_correct_option_id);
   v_rem_sec := GREATEST(0, ceil(extract(epoch FROM (v_p.active_deadline_at - now())))::int);
 
