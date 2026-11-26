@@ -15,8 +15,8 @@ CREATE TABLE IF NOT EXISTS public.matches (
   config              jsonb NOT NULL DEFAULT '{
     "totalLevels": 60,
     "roomsPerLevel": 4,
-    "mainTimerSec": 45,
-    "roomTimerSec": 30,
+    "mainTimerSec": 50,
+    "roomTimerSec": 50,
     "matchDurationMinutes": null,
     "roomDifficultyFractions": [0.8, 0.6, 0.4, 0.2],
     "maxMainFailsPerLevel": null,
@@ -168,7 +168,9 @@ VALUES (
   'pending',
   encode(digest('stalin', 'sha256'), 'hex')
 )
-ON CONFLICT (code) DO UPDATE SET admin_code_hash = EXCLUDED.admin_code_hash;
+ON CONFLICT (code) DO UPDATE
+  SET admin_code_hash = EXCLUDED.admin_code_hash,
+      config = public.matches.config || '{"mainTimerSec": 50, "roomTimerSec": 50}'::jsonb;
 
 -- ─── 5. HELPER FUNCTIONS ─────────────────────────────────────────────────────
 
@@ -239,11 +241,11 @@ BEGIN
 
   IF v_p.phase = 'MAIN' OR v_p.room <= 0 THEN
     v_target := v_next_lv;
-    v_timer_sec := COALESCE((p_config->>'mainTimerSec')::int, 45);
+    v_timer_sec := COALESCE((p_config->>'mainTimerSec')::int, 50);
   ELSE
     v_frac := COALESCE((p_config->'roomDifficultyFractions'->>(LEAST(3, GREATEST(0, v_p.room - 1))))::numeric, 0.2);
     v_target := GREATEST(1, LEAST(v_next_lv, round(v_next_lv * v_frac)::int));
-    v_timer_sec := COALESCE((p_config->>'roomTimerSec')::int, 30);
+    v_timer_sec := COALESCE((p_config->>'roomTimerSec')::int, 50);
   END IF;
 
   -- 1. Unseen question matching target or nearest difficulty across unified bank
@@ -474,8 +476,8 @@ BEGIN
   END IF;
 
   v_timer_sec := CASE
-    WHEN v_player.phase = 'MAIN' THEN COALESCE((v_match.config->>'mainTimerSec')::int, 45)
-    ELSE COALESCE((v_match.config->>'roomTimerSec')::int, 30)
+    WHEN v_player.phase = 'MAIN' THEN COALESCE((v_match.config->>'mainTimerSec')::int, 50)
+    ELSE COALESCE((v_match.config->>'roomTimerSec')::int, 50)
   END;
   v_deadline := now() + make_interval(secs => v_timer_sec);
   v_q := jsonb_set(v_player.active_question, '{deadlineAt}', to_jsonb(floor(extract(epoch FROM v_deadline) * 1000)));

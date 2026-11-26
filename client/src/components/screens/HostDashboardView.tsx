@@ -171,11 +171,11 @@ export default function HostDashboardView({ onBackToApp }: HostDashboardProps) {
                 </div>
                 <div className="bg-[#08060a] border border-gray-900 p-3 rounded-xl">
                   <div className="text-[10px] font-cinzel text-gray-400 uppercase">Main Timer</div>
-                  <div className="font-mono text-lg font-bold text-amber-400 mt-1">45s</div>
+                  <div className="font-mono text-lg font-bold text-amber-400 mt-1">50s</div>
                 </div>
                 <div className="bg-[#08060a] border border-gray-900 p-3 rounded-xl">
                   <div className="text-[10px] font-cinzel text-gray-400 uppercase">Room Timer</div>
-                  <div className="font-mono text-lg font-bold text-red-400 mt-1">30s</div>
+                  <div className="font-mono text-lg font-bold text-red-400 mt-1">50s</div>
                 </div>
               </div>
             </div>
