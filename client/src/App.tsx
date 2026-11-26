@@ -1,6 +1,4 @@
-import { useState } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, Navigate } from 'react-router-dom';
-import { soundFX } from './lib/sound';
 import { useEclipseBackend } from './lib/useEclipseBackend';
 import EclipseSky from './components/EclipseSky';
 import LandingScreen from './components/screens/LandingScreen';
@@ -11,8 +9,6 @@ import ProjectorView from './components/projector/ProjectorView';
 
 function GameRouter() {
   const navigate = useNavigate();
-  const [soundEnabled, setSoundEnabled] = useState(soundFX.isEnabled());
-  const toggleSound = () => setSoundEnabled(soundFX.toggle());
 
   const backend = useEclipseBackend();
 
@@ -41,8 +37,6 @@ function GameRouter() {
             onEnterGame={handleJoin}
             onStartDemo={handleStartDemo}
             onOpenProjector={() => navigate('/projector')}
-            soundEnabled={soundEnabled}
-            onToggleSound={toggleSound}
             connected={backend.connected}
             backendMode={backend.mode}
             leaderboard={backend.leaderboard}
@@ -80,11 +74,9 @@ function GameRouter() {
               globalTimeLeft={backend.globalTimeLeft}
               lastResult={backend.lastResult}
               gameOverData={backend.gameOverData}
-              soundEnabled={soundEnabled}
               isDemo={backend.isDemo}
               demoHintAnswer={backend.demoHintAnswer}
               onDemoJump={backend.demoJumpLevel}
-              onToggleSound={toggleSound}
               onSubmit={backend.submitAnswer}
               onReadyNext={backend.readyNext}
               onCheat={backend.reportCheat}

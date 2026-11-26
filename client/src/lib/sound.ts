@@ -5,65 +5,94 @@
  */
 
 class EclipseAudioEngine {
-  private muted = true; // off by default until user interacts / unmutes
-  private volume = 0.55; // 0..1
+  private readonly volume = 1; // locked at full output; no mute or volume UI
   private ctx: AudioContext | null = null;
+  private failAudio: HTMLAudioElement | null = null;
   private ambientOsc1: OscillatorNode | null = null;
   private ambientOsc2: OscillatorNode | null = null;
   private ambientGain: GainNode | null = null;
 
+  constructor() {
+    if (typeof window !== 'undefined') {
+      const shutdown = () => this.shutdown();
+      window.addEventListener('pagehide', shutdown);
+      window.addEventListener('beforeunload', shutdown);
+    }
+  }
+
   public isMuted(): boolean {
-    return this.muted;
+    return false;
   }
 
   public isEnabled(): boolean {
-    return !this.muted;
+    return true;
   }
 
   public getVolume(): number {
     return this.volume;
   }
 
-  public setVolume(v: number): void {
-    this.volume = Math.min(1, Math.max(0, v));
-    if (this.ambientGain && this.ctx) {
-      try {
-        this.ambientGain.gain.setTargetAtTime(
-          this.muted ? 0 : 0.025 * this.volume,
-          this.ctx.currentTime,
-          0.1
-        );
-      } catch {
-        // ignore audio errors
-      }
-    }
+  public setVolume(_v: number): void {
+    // Volume/mute controls removed; audio stays enabled until website closes.
   }
 
   public toggleMute(): boolean {
-    this.muted = !this.muted;
-    if (!this.muted) {
-      this.ensureCtx();
-      this.playButtonClick();
-      this.startAmbient();
-    } else {
-      this.stopAmbient();
-    }
-    return !this.muted;
+    this.unlockOnInteraction();
+    return true;
   }
 
   public toggle(): boolean {
     return this.toggleMute();
   }
 
+  private getFailAudio(): HTMLAudioElement | null {
+    if (typeof window === 'undefined' || typeof Audio === 'undefined') return null;
+    if (!this.failAudio) {
+      this.failAudio = new Audio('/audio/fail-song.mp3');
+      this.failAudio.preload = 'auto';
+    }
+    this.failAudio.volume = this.volume;
+    return this.failAudio;
+  }
+
+  public playFailSong(): void {
+    const audio = this.getFailAudio();
+    if (!audio) return;
+    try {
+      audio.pause();
+      audio.currentTime = 0;
+      audio.volume = this.volume;
+      void audio.play().catch(() => {});
+    } catch {
+      // ignore playback errors
+    }
+  }
+
+  public shutdown(): void {
+    try {
+      if (this.failAudio) {
+        this.failAudio.pause();
+        this.failAudio.currentTime = 0;
+      }
+      this.stopAmbient();
+      if (this.ctx && this.ctx.state !== 'closed') {
+        void this.ctx.close().catch(() => {});
+      }
+      this.ctx = null;
+    } catch {
+      // ignore cleanup errors
+    }
+  }
+
   /** Enable audio after explicit user interaction (e.g. clicking Join / Start) */
   public unlockOnInteraction(): void {
-    if (this.muted) return;
     this.ensureCtx();
+    this.getFailAudio();
     this.startAmbient();
   }
 
   private ensureCtx(): AudioContext | null {
-    if (this.muted || typeof window === 'undefined') return null;
+    if (typeof window === 'undefined') return null;
     try {
       if (!this.ctx) {
         const AC =
@@ -114,7 +143,7 @@ class EclipseAudioEngine {
 
   /** Quiet ambient loop (called after player interaction, stopped at match end) */
   public startAmbient(): void {
-    if (this.muted || this.ambientOsc1) return;
+    if (this.ambientOsc1) return;
     const ctx = this.ensureCtx();
     if (!ctx) return;
     try {
@@ -201,9 +230,10 @@ class EclipseAudioEngine {
     this.tone(587.33, 0.26, 'triangle', 0.09, 0.08);
   }
 
-  /** Incorrect answer: Short low impact, no harsh alarm */
+  /** Incorrect answer / failure: Low impact + custom failure track */
   public playIncorrect(): void {
     this.tone(150, 0.18, 'triangle', 0.09, 0, 85);
+    this.playFailSong();
   }
 
   /** Enter recovery room: Brief airy stone-door transition */

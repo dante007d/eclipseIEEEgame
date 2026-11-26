@@ -13,5 +13,5 @@ export declare const CHEAT_TITLES: Record<string, string>;
 export declare const CHEAT_ROASTS: Record<string, string[]>;
 export declare const WIN_ART: string;
 export declare const LOSE_ART: string;
-export declare const WIN_SNAKE: string;
-export declare const LOSE_SNAKE: string;
+export declare const WIN_SIGIL: string;
+export declare const LOSE_SIGIL: string;

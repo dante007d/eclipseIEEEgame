@@ -8,8 +8,6 @@ interface LandingScreenProps {
   onEnterGame: (code: string, name: string) => void;
   onStartDemo: (name: string) => void;
   onOpenProjector: () => void;
-  soundEnabled: boolean;
-  onToggleSound: () => void;
   connected: boolean;
   backendMode: BackendMode;
   leaderboard: LeaderboardSnapshot;
@@ -21,8 +19,6 @@ export default function LandingScreen({
   onEnterGame,
   onStartDemo,
   onOpenProjector,
-  soundEnabled,
-  onToggleSound,
   connected,
   backendMode,
   leaderboard,
@@ -33,10 +29,10 @@ export default function LandingScreen({
   const [name, setName] = useState<string>(() => sessionStorage.getItem('eclipse_last_name') || '');
   const [localError, setLocalError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [volume, setVolume] = useState(() => Math.round(soundFX.getVolume() * 100));
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
+    soundFX.unlockOnInteraction();
     soundFX.playButtonClick();
     const trimmedCode = code.trim();
     const trimmedName = name.trim();
@@ -63,20 +59,11 @@ export default function LandingScreen({
       squeeze={0.22}
     >
       <div className="flex-1 flex flex-col justify-between py-2">
-        {/* Top Corners: Audio (Left) & Telemetry + Settings (Right) */}
+        {/* Top Corners: Locked Audio Status (Left) & Telemetry + Settings (Right) */}
         <div className="flex items-center justify-between gap-3">
-          <button
-            type="button"
-            onClick={onToggleSound}
-            aria-label={soundEnabled ? 'Mute Audio' : 'Enable Audio'}
-            className={`px-3 py-1.5 border font-mono text-xs uppercase tracking-wider transition-colors ${
-              soundEnabled
-                ? 'bg-[#7f0d16] border-[#ff0033] text-white'
-                : 'bg-[#080508] border-[#c69c5d]/70 text-[#e6d7be] hover:bg-[#c69c5d] hover:text-black'
-            }`}
-          >
-            {soundEnabled ? '[AUDIO: ON]' : '[AUDIO: OFF]'}
-          </button>
+          <span className="px-3 py-1.5 bg-[#7f0d16] border border-[#ff0033] text-white font-mono text-xs uppercase tracking-wider">
+            [AUDIO: ACTIVE]
+          </span>
 
           <div className="flex items-center gap-2">
             <span className="hidden sm:inline-flex items-center gap-2 px-3 py-1.5 bg-[#080508] border border-[#c69c5d]/45 font-mono text-[11px] text-[#cbbba0] uppercase tabular-nums">
@@ -243,29 +230,6 @@ export default function LandingScreen({
                 <span className="text-gray-400">BACKEND MODE</span>
                 <span className="text-[#e6c48a] font-bold uppercase">{backendMode}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-gray-400">VOLUME ({volume}%)</span>
-                <button
-                  type="button"
-                  onClick={onToggleSound}
-                  className="text-[#e6c48a] underline"
-                >
-                  {soundEnabled ? 'MUTE' : 'UNMUTE'}
-                </button>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                value={volume}
-                onChange={e => {
-                  const v = Number(e.target.value);
-                  setVolume(v);
-                  soundFX.setVolume(v / 100);
-                }}
-                className="w-full accent-[#c69c5d] cursor-pointer"
-                aria-label="Audio volume"
-              />
             </div>
 
             <div className="bg-[#030204] border border-[#dc2626]/40 p-3 font-mono text-xs text-gray-300 space-y-1">

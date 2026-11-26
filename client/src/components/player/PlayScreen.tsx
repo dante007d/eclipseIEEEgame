@@ -22,8 +22,8 @@ import {
   THOUGHTS,
   WIN_ART,
   LOSE_ART,
-  WIN_SNAKE,
-  LOSE_SNAKE,
+  WIN_SIGIL,
+  LOSE_SIGIL,
 } from '../../../../shared/flavor.js';
 import { incrementStrikes, loadStrikes } from '../../lib/socket';
 import { soundFX } from '../../lib/sound';
@@ -57,11 +57,9 @@ interface PlayScreenProps {
     winners?: { junior?: PlayerState | null; senior?: PlayerState | null };
     message?: string;
   } | null;
-  soundEnabled: boolean;
   isDemo?: boolean;
   demoHintAnswer?: string | null;
   onDemoJump?: (level: number, room?: number) => void;
-  onToggleSound: () => void;
   onSubmit: (questionToken: string, optionId: string) => void;
   onReadyNext: () => void;
   onCheat: (kind: string) => void;
@@ -134,11 +132,9 @@ export default function PlayScreen({
   globalTimeLeft,
   lastResult,
   gameOverData,
-  soundEnabled,
   isDemo = false,
   demoHintAnswer = null,
   onDemoJump,
-  onToggleSound,
   onSubmit,
   onReadyNext,
   onCheat,
@@ -153,7 +149,6 @@ export default function PlayScreen({
   const [insultToast, setInsultToast] = useState<string | null>(null);
   const [whisper, setWhisper] = useState<WhisperItem | null>(null);
   const [showDemoAnswer, setShowDemoAnswer] = useState(false);
-  const [volume, setVolume] = useState(() => Math.round(soundFX.getVolume() * 100));
 
   const insultedTokenRef = useRef<string | null>(null);
   const timedOutTokenRef = useRef<string | null>(null);
@@ -577,9 +572,15 @@ export default function PlayScreen({
               {isDQ ? '[ THREAD PURGED ]' : iAmWinner ? '[ CYCLE BROKEN ]' : '[ CONSUMED ]'}
             </span>
 
-            <pre className={`font-mono text-[10px] leading-tight inline-block text-left mb-3 ${iAmWinner ? 'text-[#c69c5d]' : 'text-[#ff0033]'}`}>
-              {iAmWinner ? WIN_ART : LOSE_ART}
-            </pre>
+            {iAmWinner ? (
+              <pre className="font-mono text-[10px] leading-tight inline-block text-left mb-3 text-[#c69c5d]">
+                {WIN_ART}
+              </pre>
+            ) : (
+              <div className="font-display text-3xl sm:text-5xl text-[#ff0033] tracking-[0.14em] uppercase leading-tight mb-4 drop-shadow-[0_0_24px_rgba(255,0,51,0.75)]">
+                {LOSE_ART}
+              </div>
+            )}
 
             <h2 className={`font-display text-4xl tracking-[0.2em] uppercase mb-2 ${iAmWinner ? 'text-[#e6c48a]' : 'text-[#ff0033] animate-glitch'}`}>
               {isDQ
@@ -640,7 +641,7 @@ export default function PlayScreen({
             </div>
 
             <pre className={`font-mono text-[10px] leading-tight inline-block text-left mb-4 ${iAmWinner ? 'text-[#e6c48a]/85' : 'text-[#ff0033]/85'}`}>
-              {iAmWinner ? WIN_SNAKE : LOSE_SNAKE}
+              {iAmWinner ? WIN_SIGIL : LOSE_SIGIL}
             </pre>
 
             <div className="flex flex-col gap-2.5">
@@ -1002,7 +1003,7 @@ export default function PlayScreen({
             <span className="eclipse-slab-label">[ TERMINAL MENU ]</span>
             <div className="flex items-center justify-between pt-1">
               <h3 className="font-display text-2xl tracking-[0.18em] text-[#e6c48a] uppercase">
-                AUDIO &amp; EXIT
+                CYCLE &amp; EXIT
               </h3>
               <button
                 onClick={() => setShowInfoModal(false)}
@@ -1015,28 +1016,8 @@ export default function PlayScreen({
             <div className="bg-[#030204] border border-[#c69c5d]/35 p-3 font-mono text-xs space-y-2 tabular-nums">
               <div className="flex justify-between"><span className="text-gray-400">PLAYER</span><span className="text-white">{player.name}</span></div>
               <div className="flex justify-between"><span className="text-gray-400">BEST LEVEL</span><span className="text-[#e6c48a]">{player.bestLevel} / {config.totalLevels}</span></div>
-              <div className="flex justify-between"><span className="text-gray-400">VOLUME ({volume}%)</span><span>{soundEnabled ? 'ACTIVE' : 'MUTED'}</span></div>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                value={volume}
-                onChange={e => {
-                  const v = Number(e.target.value);
-                  setVolume(v);
-                  soundFX.setVolume(v / 100);
-                }}
-                className="w-full accent-[#c69c5d] cursor-pointer"
-                aria-label="Audio volume"
-              />
             </div>
             <div className="flex flex-col gap-2">
-              <button
-                onClick={onToggleSound}
-                className="eclipse-btn-obsidian w-full py-2.5 font-mono text-xs uppercase tracking-wider"
-              >
-                {soundEnabled ? '[SOUND: ON -> MUTE]' : '[SOUND: OFF -> UNMUTE]'}
-              </button>
               <button
                 onClick={() => {
                   setShowInfoModal(false);
