@@ -5,7 +5,11 @@ export function createHttpRouter(matchContext) {
   const router = express.Router();
   const { store, onlineCount, ranked, boardPayload } = matchContext;
 
+  let standingsCacheJson = null;
+  let standingsCachedAt = 0;
+
   router.get('/health', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
     res.json({
       ok: true,
       game: GAME_NAME,
@@ -16,7 +20,14 @@ export function createHttpRouter(matchContext) {
   });
 
   router.get('/api/standings', (_req, res) => {
-    res.json(boardPayload(ranked(), 100));
+    const now = Date.now();
+    if (!standingsCacheJson || now - standingsCachedAt > 1500) {
+      standingsCacheJson = JSON.stringify(boardPayload(ranked(), 100));
+      standingsCachedAt = now;
+    }
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=1');
+    res.send(standingsCacheJson);
   });
 
   router.get('/', (_req, res) => {

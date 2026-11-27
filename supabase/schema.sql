@@ -113,6 +113,13 @@ CREATE TABLE IF NOT EXISTS public.feed_events (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS public.admin_auth_guard (
+  match_id     uuid PRIMARY KEY REFERENCES public.matches(id) ON DELETE CASCADE,
+  fail_count   int NOT NULL DEFAULT 0,
+  locked_until timestamptz NULL,
+  updated_at   timestamptz NOT NULL DEFAULT now()
+);
+
 -- ─── 2. INDEXES FOR 500+ CONCURRENT USERS ────────────────────────────────────
 
 CREATE INDEX IF NOT EXISTS idx_questions_track_lv_active
@@ -142,13 +149,17 @@ CREATE INDEX IF NOT EXISTS idx_attempts_player
 CREATE INDEX IF NOT EXISTS idx_feed_recent
   ON public.feed_events(match_id, grp, id DESC);
 
+CREATE INDEX IF NOT EXISTS idx_feed_match_latest
+  ON public.feed_events(match_id, id DESC);
+
 -- ─── 3. STRICT ROW LEVEL SECURITY (ZERO ANSWER LEAKAGE) ─────────────────────
 
-ALTER TABLE public.matches     ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.questions   ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.players     ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.attempts    ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.feed_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.matches          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.questions        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.players          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.attempts         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.feed_events      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.admin_auth_guard ENABLE ROW LEVEL SECURITY;
 
 -- No public SELECT/INSERT/UPDATE policies! All access goes through SECURITY DEFINER RPCs.
 
@@ -344,12 +355,18 @@ DECLARE
   v_match public.matches;
   v_player public.players;
   v_code text := upper(trim(COALESCE(p_match_code, '')));
+  v_clean_session text := trim(COALESCE(p_session_id, ''));
   v_clean_name text;
   v_clean_year int := LEAST(4, GREATEST(1, COALESCE(p_year, 1)));
   v_grp text := CASE WHEN v_clean_year >= 2 THEN 'senior' ELSE 'junior' END;
   v_q jsonb;
   v_rank int;
+  v_player_count int;
 BEGIN
+  IF length(v_clean_session) < 8 OR length(v_clean_session) > 96 THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'Invalid session token.');
+  END IF;
+
   SELECT * INTO v_match FROM public.matches WHERE code = v_code LIMIT 1;
 
   IF NOT FOUND THEN
@@ -360,16 +377,22 @@ BEGIN
 
   SELECT * INTO v_player
   FROM public.players
-  WHERE match_id = v_match.id AND session_id = p_session_id
+  WHERE match_id = v_match.id AND session_id = v_clean_session
   FOR UPDATE;
 
   IF NOT FOUND THEN
+    SELECT count(*) INTO v_player_count FROM public.players WHERE match_id = v_match.id;
+    IF v_player_count >= 800 THEN
+      RETURN jsonb_build_object('ok', false, 'error', 'Match arena has reached capacity (800 players max).');
+    END IF;
     INSERT INTO public.players (match_id, session_id, name, year, grp)
-    VALUES (v_match.id, p_session_id, v_clean_name, v_clean_year, v_grp)
+    VALUES (v_match.id, v_clean_session, v_clean_name, v_clean_year, v_grp)
     RETURNING * INTO v_player;
-    UPDATE public.matches SET leaderboard_dirty = true WHERE id = v_match.id;
   ELSE
     IF p_reenter AND v_player.status <> 'disqualified' THEN
+      IF v_player.start_time > now() - interval '3 seconds' THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'Please wait a moment before re-entering.');
+      END IF;
       UPDATE public.players
       SET name = v_clean_name,
           year = v_clean_year,
@@ -397,13 +420,12 @@ BEGIN
           active_answered = false
       WHERE id = v_player.id
       RETURNING * INTO v_player;
-      UPDATE public.matches SET leaderboard_dirty = true WHERE id = v_match.id;
     ELSE
       UPDATE public.players
       SET name = v_clean_name,
           year = v_clean_year,
           grp = v_grp,
-          last_seen_at = now()
+          last_seen_at = CASE WHEN last_seen_at < now() - interval '25 seconds' THEN now() ELSE last_seen_at END
       WHERE id = v_player.id
       RETURNING * INTO v_player;
     END IF;
@@ -678,8 +700,6 @@ BEGIN
     v_next_q := public.eclipse_issue_question(v_p.id, v_match.config, CASE WHEN v_is_correct THEN 2200 ELSE 5500 END);
   END IF;
 
-  UPDATE public.matches SET leaderboard_dirty = true WHERE id = v_match.id;
-
   SELECT count(*) + 1 INTO v_rank
   FROM public.players
   WHERE match_id = v_match.id
@@ -730,6 +750,11 @@ BEGIN
   SELECT * INTO v_p FROM public.players WHERE match_id = v_match_id AND session_id = p_session_id FOR UPDATE;
   IF NOT FOUND THEN RETURN; END IF;
 
+  -- Ignore synthetic flood calls occurring faster than 1.5s from the same session
+  IF v_p.last_seen_at > now() - interval '1500 milliseconds' AND v_p.cheats >= 25 THEN
+    RETURN;
+  END IF;
+
   v_should_feed := (v_p.last_cheat_feed_at IS NULL OR v_p.last_cheat_feed_at < now() - interval '8 seconds');
 
   UPDATE public.players
@@ -742,9 +767,10 @@ BEGIN
     INSERT INTO public.feed_events (match_id, grp, t, n) VALUES (v_match_id, v_p.grp, 'cheat', v_p.name);
     DELETE FROM public.feed_events
     WHERE match_id = v_match_id
-      AND id NOT IN (SELECT id FROM public.feed_events WHERE match_id = v_match_id ORDER BY id DESC LIMIT 25);
+      AND id < COALESCE((
+        SELECT id FROM public.feed_events WHERE match_id = v_match_id ORDER BY id DESC OFFSET 24 LIMIT 1
+      ), 0);
   END IF;
-  UPDATE public.matches SET leaderboard_dirty = true WHERE id = v_match_id;
 END;
 $$;
 
@@ -771,7 +797,6 @@ BEGIN
 
   IF FOUND THEN
     INSERT INTO public.feed_events (match_id, grp, t, n) VALUES (v_match_id, v_p.grp, 'dead', v_p.name);
-    UPDATE public.matches SET leaderboard_dirty = true WHERE id = v_match_id;
     RETURN jsonb_build_object('ok', true, 'player', public.eclipse_serialize_player(v_p));
   END IF;
   RETURN jsonb_build_object('ok', false);
@@ -805,19 +830,21 @@ BEGIN
   END IF;
   IF NOT FOUND THEN RETURN jsonb_build_object('ok', false); END IF;
 
-  -- Touch last_seen_at only if stale > 20s to minimize Postgres write pressure
+  -- Touch last_seen_at only if stale > 30s to minimize Postgres write pressure
   IF p_session_id IS NOT NULL THEN
     UPDATE public.players
     SET last_seen_at = now()
-    WHERE match_id = v_match.id AND session_id = p_session_id AND last_seen_at < (now() - interval '20 seconds');
+    WHERE match_id = v_match.id AND session_id = p_session_id AND last_seen_at < (now() - interval '30 seconds');
 
     SELECT * INTO v_p FROM public.players WHERE match_id = v_match.id AND session_id = p_session_id LIMIT 1;
   END IF;
 
   IF v_match.pulse_cache IS NOT NULL
      AND NOT v_match.leaderboard_dirty
-     AND v_match.pulse_cached_at IS NOT NULL
-     AND v_match.pulse_cached_at > (now() - interval '2 seconds') THEN
+     AND (
+       (v_match.pulse_cached_at IS NOT NULL AND v_match.pulse_cached_at > (now() - interval '3 seconds'))
+       OR NOT pg_try_advisory_xact_lock(hashtext('pulse:' || v_match.id::text))
+     ) THEN
     v_cache := v_match.pulse_cache;
     v_total := (v_cache->>'total')::int;
     v_online := (v_cache->>'online')::int;
@@ -955,6 +982,57 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION public.eclipse_verify_admin(
+  p_match_id uuid,
+  p_expected_hash text,
+  p_admin_code text
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions
+AS $$
+DECLARE
+  v_guard public.admin_auth_guard;
+  v_hash text := encode(digest(lower(trim(COALESCE(p_admin_code, ''))), 'sha256'), 'hex');
+  v_next_fails int;
+BEGIN
+  INSERT INTO public.admin_auth_guard (match_id, fail_count)
+  VALUES (p_match_id, 0)
+  ON CONFLICT (match_id) DO NOTHING;
+
+  SELECT * INTO v_guard FROM public.admin_auth_guard WHERE match_id = p_match_id FOR UPDATE;
+
+  IF v_guard.locked_until IS NOT NULL AND v_guard.locked_until > now() THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'Too many failed host attempts. Locked for 30 seconds.');
+  END IF;
+
+  IF p_expected_hash = v_hash THEN
+    IF v_guard.fail_count > 0 OR v_guard.locked_until IS NOT NULL THEN
+      UPDATE public.admin_auth_guard SET fail_count = 0, locked_until = NULL, updated_at = now() WHERE match_id = p_match_id;
+    END IF;
+    RETURN jsonb_build_object('ok', true);
+  END IF;
+
+  v_next_fails := CASE
+    WHEN v_guard.locked_until IS NOT NULL AND v_guard.locked_until <= now() THEN 1
+    ELSE v_guard.fail_count + 1
+  END;
+
+  IF v_next_fails >= 8 THEN
+    UPDATE public.admin_auth_guard
+    SET fail_count = 0, locked_until = now() + interval '30 seconds', updated_at = now()
+    WHERE match_id = p_match_id;
+    RETURN jsonb_build_object('ok', false, 'error', 'Too many failed host attempts. Locked for 30 seconds.');
+  ELSE
+    UPDATE public.admin_auth_guard
+    SET fail_count = v_next_fails, locked_until = NULL, updated_at = now()
+    WHERE match_id = p_match_id;
+    RETURN jsonb_build_object('ok', false, 'error', 'Invalid Host Passcode.');
+  END IF;
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION public.eclipse_host_auth(
   p_admin_code text,
   p_match_code text DEFAULT 'DANTE'
@@ -966,15 +1044,20 @@ SET search_path = public, extensions
 AS $$
 DECLARE
   v_match public.matches;
-  v_hash text := encode(digest(lower(trim(COALESCE(p_admin_code, ''))), 'sha256'), 'hex');
+  v_auth jsonb;
   v_all jsonb;
   v_jun jsonb;
   v_sen jsonb;
 BEGIN
   SELECT * INTO v_match FROM public.matches WHERE code = upper(trim(COALESCE(p_match_code, 'DANTE'))) LIMIT 1;
   IF NOT FOUND THEN SELECT * INTO v_match FROM public.matches ORDER BY created_at DESC LIMIT 1; END IF;
-  IF NOT FOUND OR v_match.admin_code_hash <> v_hash THEN
+  IF NOT FOUND THEN
     RETURN jsonb_build_object('ok', false, 'error', 'Invalid Host Passcode.');
+  END IF;
+
+  v_auth := public.eclipse_verify_admin(v_match.id, v_match.admin_code_hash, p_admin_code);
+  IF NOT COALESCE((v_auth->>'ok')::boolean, false) THEN
+    RETURN v_auth;
   END IF;
 
   SELECT COALESCE(jsonb_object_agg(lv::text, cnt), '{}'::jsonb) INTO v_all
@@ -1005,7 +1088,7 @@ SET search_path = public, extensions
 AS $$
 DECLARE
   v_match public.matches;
-  v_hash text := encode(digest(lower(trim(COALESCE(p_admin_code, ''))), 'sha256'), 'hex');
+  v_auth jsonb;
   v_new_code text;
   v_w_jun jsonb;
   v_w_sen jsonb;
@@ -1015,8 +1098,13 @@ DECLARE
 BEGIN
   SELECT * INTO v_match FROM public.matches WHERE code = upper(trim(COALESCE(p_match_code, 'DANTE'))) LIMIT 1;
   IF NOT FOUND THEN SELECT * INTO v_match FROM public.matches ORDER BY created_at DESC LIMIT 1; END IF;
-  IF NOT FOUND OR v_match.admin_code_hash <> v_hash THEN
+  IF NOT FOUND THEN
     RETURN jsonb_build_object('ok', false, 'error', 'Unauthorized');
+  END IF;
+
+  v_auth := public.eclipse_verify_admin(v_match.id, v_match.admin_code_hash, p_admin_code);
+  IF NOT COALESCE((v_auth->>'ok')::boolean, false) THEN
+    RETURN v_auth;
   END IF;
 
   IF p_action = 'set_status' THEN

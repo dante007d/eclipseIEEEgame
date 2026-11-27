@@ -157,13 +157,18 @@ export default function HostPortal({ onBackHome, onOpenProjector, globalTimeLeft
       if (!authed) return;
       const supabase = tryGetSupabase();
       if (!supabase) return;
-      const intervalMs = status === 'pending' ? 1500 : 3000;
+      const intervalMs = status === 'pending' ? 2500 : 4000;
+      let inFlight = false;
       const t = setInterval(async () => {
+        if (inFlight) return;
+        inFlight = true;
         try {
           const { data } = await supabase.rpc('eclipse_get_standings', { p_match_code: matchCode });
           if (data?.ok) applyStandingsPayload(data);
         } catch {
           // Ignore transient polling failures
+        } finally {
+          inFlight = false;
         }
       }, intervalMs);
       return () => clearInterval(t);

@@ -38,7 +38,6 @@ function GameRouter() {
             onStartDemo={handleStartDemo}
             onOpenProjector={() => navigate('/projector')}
             connected={backend.connected}
-            backendMode={backend.mode}
             leaderboard={backend.leaderboard}
             errorMsg={backend.joinError}
             loading={backend.joinLoading}

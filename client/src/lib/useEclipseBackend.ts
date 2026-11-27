@@ -275,8 +275,8 @@ export function useEclipseBackend() {
         playerRef.current && (matchStatusRef.current === 'pending' || matchStatusRef.current === 'paused')
       );
       const jitterMs = isWaiting
-        ? 1200 + Math.floor(Math.random() * 500)
-        : 4000 + Math.floor(Math.random() * 2000);
+        ? 1800 + Math.floor(Math.random() * 1000)
+        : 6000 + Math.floor(Math.random() * 4000);
       timerId = window.setTimeout(async () => {
         await pollPulse();
         if (!cancelled) scheduleNext();
@@ -297,6 +297,7 @@ export function useEclipseBackend() {
     const supabase = tryGetSupabase();
     if (!supabase) return;
     let cancelled = false;
+    let staggerTimer: number | null = null;
     const channelCode = loadPlayerMeta()?.matchCode || matchCode || 'DANTE';
 
     const signalChannel = supabase
@@ -325,24 +326,31 @@ export function useEclipseBackend() {
           !questionRef.current &&
           !pendingAdvanceTimerRef.current
         ) {
-          lastAutoReadyRef.current = Date.now();
-          const savedMeta = loadPlayerMeta();
-          supabase
-            .rpc('eclipse_ready_next', {
-              p_match_code: savedMeta?.matchCode || channelCode,
-              p_session_id: getSessionId(),
-            })
-            .then(({ data: qRes }) => {
-              if (!cancelled && qRes?.ok && qRes.question) {
-                setQuestion(qRes.question);
-              }
-            }, () => {});
+          // Stagger 500 concurrent clients over ~1.2s to prevent start-button thundering-herd spikes
+          if (staggerTimer) clearTimeout(staggerTimer);
+          const staggerMs = 40 + Math.floor(Math.random() * 1200);
+          staggerTimer = window.setTimeout(() => {
+            if (cancelled || questionRef.current || pendingAdvanceTimerRef.current) return;
+            lastAutoReadyRef.current = Date.now();
+            const savedMeta = loadPlayerMeta();
+            supabase
+              .rpc('eclipse_ready_next', {
+                p_match_code: savedMeta?.matchCode || channelCode,
+                p_session_id: getSessionId(),
+              })
+              .then(({ data: qRes }) => {
+                if (!cancelled && qRes?.ok && qRes.question) {
+                  setQuestion(qRes.question);
+                }
+              }, () => {});
+          }, staggerMs);
         }
       })
       .subscribe();
 
     return () => {
       cancelled = true;
+      if (staggerTimer) clearTimeout(staggerTimer);
       supabase.removeChannel(signalChannel);
     };
   }, [mode, isDemo, matchCode]);
@@ -674,14 +682,22 @@ export function useEclipseBackend() {
     if (mode === 'supabase') {
       const supabase = tryGetSupabase();
       if (!supabase) return;
-      try {
-        const { data } = await supabase.rpc('eclipse_ready_next', {
-          p_match_code: matchCode,
-          p_session_id: getSessionId(),
-        });
-        if (data?.ok && data.question) setQuestion(data.question);
-      } catch {
-        // Ignore transient sync failures
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const { data, error } = await supabase.rpc('eclipse_ready_next', {
+            p_match_code: matchCode,
+            p_session_id: getSessionId(),
+          });
+          if (!error && data?.ok) {
+            if (data.question) setQuestion(data.question);
+            return;
+          }
+        } catch {
+          // Retry once on transient network spike
+        }
+        if (attempt === 0) {
+          await new Promise(r => setTimeout(r, 250 + Math.floor(Math.random() * 250)));
+        }
       }
       return;
     }
@@ -689,6 +705,7 @@ export function useEclipseBackend() {
     socket.emit(SOCKET_EVENTS.READY_NEXT);
   }, [isDemo, mode, matchCode]);
 
+  const submittingTokenRef = useRef<string | null>(null);
   const submitAnswer = useCallback(async (questionToken: string, optionId: string) => {
     lastSubmittedOptionRef.current = optionId;
     if (pendingAdvanceTimerRef.current) {
@@ -710,28 +727,46 @@ export function useEclipseBackend() {
     }
 
     if (mode === 'supabase') {
+      if (submittingTokenRef.current === questionToken) return;
+      submittingTokenRef.current = questionToken;
       const supabase = tryGetSupabase();
-      if (!supabase) return;
+      if (!supabase) {
+        submittingTokenRef.current = null;
+        return;
+      }
       try {
-        const { data, error } = await supabase.rpc('eclipse_submit_answer', {
-          p_match_code: matchCode,
-          p_session_id: getSessionId(),
-          p_question_token: questionToken,
-          p_option_id: optionId,
-        });
-        if (!error && data?.ok) {
-          setLastResult({ ...data.result, player: data.player, selectedOptionId: optionId });
-          pendingAdvanceTimerRef.current = window.setTimeout(() => {
-            pendingAdvanceTimerRef.current = null;
-            if (data.player) setPlayer(data.player);
-            if (data.nextQuestion) setQuestion(data.nextQuestion);
-            if (data.rank != null) updateRankWithFlash(data.rank);
-          }, data.result?.correct ? 600 : 4900);
-        } else {
-          await readyNext();
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            const { data, error } = await supabase.rpc('eclipse_submit_answer', {
+              p_match_code: matchCode,
+              p_session_id: getSessionId(),
+              p_question_token: questionToken,
+              p_option_id: optionId,
+            });
+            if (!error && data?.ok) {
+              setLastResult({ ...data.result, player: data.player, selectedOptionId: optionId });
+              pendingAdvanceTimerRef.current = window.setTimeout(() => {
+                pendingAdvanceTimerRef.current = null;
+                if (data.player) setPlayer(data.player);
+                if (data.nextQuestion) setQuestion(data.nextQuestion);
+                if (data.rank != null) updateRankWithFlash(data.rank);
+              }, data.result?.correct ? 600 : 4900);
+              return;
+            }
+            if (!error && data && !data.ok) {
+              await readyNext();
+              return;
+            }
+          } catch {
+            // Retry once on transient RPC timeout/error
+          }
+          if (attempt === 0) {
+            await new Promise(r => setTimeout(r, 300 + Math.floor(Math.random() * 250)));
+          }
         }
-      } catch {
         await readyNext();
+      } finally {
+        submittingTokenRef.current = null;
       }
       return;
     }
@@ -832,6 +867,11 @@ export function useEclipseBackend() {
 
   const leaveToPortal = useCallback(() => {
     soundFX.stopAmbient();
+    if (pendingAdvanceTimerRef.current) {
+      clearTimeout(pendingAdvanceTimerRef.current);
+      pendingAdvanceTimerRef.current = null;
+    }
+    submittingTokenRef.current = null;
     clearPlayerMeta();
     setIsDemo(false);
     demoRef.current = null;

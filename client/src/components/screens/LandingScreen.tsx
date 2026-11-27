@@ -1,6 +1,5 @@
 import { useState, type FormEvent } from 'react';
 import type { LeaderboardSnapshot } from '../../types/game';
-import type { BackendMode } from '../../lib/supabaseClient';
 import { soundFX } from '../../lib/sound';
 import { EclipseStage, GoldDivider } from '../GothicPrimitives';
 
@@ -9,7 +8,6 @@ interface LandingScreenProps {
   onStartDemo: (name: string) => void;
   onOpenProjector: () => void;
   connected: boolean;
-  backendMode: BackendMode;
   leaderboard: LeaderboardSnapshot;
   errorMsg?: string | null;
   loading?: boolean;
@@ -20,7 +18,6 @@ export default function LandingScreen({
   onStartDemo,
   onOpenProjector,
   connected,
-  backendMode,
   leaderboard,
   errorMsg,
   loading = false,
@@ -68,7 +65,7 @@ export default function LandingScreen({
           <div className="flex items-center gap-2">
             <span className="hidden sm:inline-flex items-center gap-2 px-3 py-1.5 bg-[#080508] border border-[#c69c5d]/45 font-mono text-[11px] text-[#cbbba0] uppercase tabular-nums">
               <span className={`w-2 h-2 ${connected ? 'bg-[#b8ff00]' : 'bg-[#c69c5d]'}`} />
-              {connected ? `${leaderboard.online} ONLINE` : backendMode === 'supabase' ? 'SUPABASE' : 'STANDBY'}
+              {connected ? `${leaderboard.online} ONLINE` : 'STANDBY'}
             </span>
             <button
               type="button"
@@ -213,7 +210,7 @@ export default function LandingScreen({
             <span className="eclipse-slab-label">[ ARENA SETTINGS ]</span>
             <div className="flex items-center justify-between pt-1">
               <h3 className="font-display text-2xl tracking-[0.18em] text-[#e6c48a] uppercase">
-                SYSTEM &amp; AUDIO
+                ARENA LAWS
               </h3>
               <button
                 type="button"
@@ -224,13 +221,6 @@ export default function LandingScreen({
               </button>
             </div>
             <GoldDivider />
-
-            <div className="bg-[#030204] border border-[#c69c5d]/35 p-3 font-mono text-xs space-y-2">
-              <div className="flex justify-between">
-                <span className="text-gray-400">BACKEND MODE</span>
-                <span className="text-[#e6c48a] font-bold uppercase">{backendMode}</span>
-              </div>
-            </div>
 
             <div className="bg-[#030204] border border-[#dc2626]/40 p-3 font-mono text-xs text-gray-300 space-y-1">
               <div className="text-[11px] font-bold text-[#ff0033] uppercase tracking-wider">
